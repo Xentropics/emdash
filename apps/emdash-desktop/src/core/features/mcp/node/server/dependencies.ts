@@ -7,6 +7,12 @@ import type {
 import type { ProjectAttachmentManager } from '@core/features/projects/api/node/project-attachment-manager';
 import type { TaskService } from '@core/features/tasks/api/node/task-service';
 import type { WorkspaceIdentityService } from '@core/features/workspaces/api/node/workspace-identity-service';
+import type {
+  CreateProjectParams,
+  CreateProjectResult,
+  InspectProjectPathParams,
+  ProjectPathInspection,
+} from '@core/primitives/projects/api';
 import type { TelemetryService } from '@core/primitives/telemetry/api/telemetry';
 import type { AppDb } from '@core/services/app-db/node/db';
 import type { AppSettingsService } from '@core/services/settings/node';
@@ -20,6 +26,8 @@ import type { AutoApproveRequestInput } from '../auto-approve-requests';
 export type McpToolDependencies = Readonly<{
   db: AppDb;
   projects: ProjectAttachmentManager;
+  /** The Add Project dialog's operations, for add_project. */
+  projectCreation: ProjectCreationOperations;
   tasks: TaskService;
   runtimes: RuntimeBroker;
   workspaceIdentity: WorkspaceIdentityService;
@@ -45,6 +53,12 @@ export type RestartConversation = (input: {
   taskId: string;
   conversationId: string;
 }) => Promise<{ restarted: boolean; message?: string }>;
+
+/** The projects wire controller's `inspectProjectPath` and `createProject`. */
+export type ProjectCreationOperations = Readonly<{
+  inspectProjectPath(params: InspectProjectPathParams): Promise<ProjectPathInspection>;
+  createProject(params: CreateProjectParams): Promise<CreateProjectResult>;
+}>;
 
 export type StartInitialConversation = (input: {
   projectId: string;
