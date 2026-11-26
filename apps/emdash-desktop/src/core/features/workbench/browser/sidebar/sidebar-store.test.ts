@@ -284,4 +284,15 @@ describe('SidebarStore project ordering', () => {
     store.toggleCollapsedPinnedList();
     expect(store.isPinnedListCollapsed).toBe(false);
   });
+
+  it('keeps the Pinned list height within bounds', () => {
+    const store = new SidebarStore(projectManagerWithTasks([]));
+    expect(store.pinnedListMaxHeightRatio).toBe(0.4);
+    store.setPinnedListMaxHeightRatio(0.55);
+    expect(store.pinnedListMaxHeightRatio).toBe(0.55);
+    store.setPinnedListMaxHeightRatio(2);
+    expect(store.pinnedListMaxHeightRatio).toBe(0.8);
+    store.setPinnedListMaxHeightRatio(-1);
+    expect(store.pinnedListMaxHeightRatio).toBe(0.1);
+  });
 });

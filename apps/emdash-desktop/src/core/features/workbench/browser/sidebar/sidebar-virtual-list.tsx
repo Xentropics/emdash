@@ -6,6 +6,7 @@ import {
   PointerSensor,
   pointerWithin,
   useDndContext,
+  useDroppable,
   useSensor,
   useSensors,
   type ClientRect,
@@ -22,6 +23,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { Pin } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -34,7 +36,10 @@ import {
   useViewParams,
   useWorkspaceSlots,
 } from '@core/primitives/navigation/browser/navigation-hooks';
+import { cn } from '@core/primitives/styling/browser/cn';
+import { pinTaskAt } from './pinned-task-list';
 import { SidebarProjectItem } from './project-item';
+import { SidebarScrollFade } from './scroll-fade';
 import { SidebarTaskItem } from './task-item';
 
 const ROW_HEIGHT = 32;
@@ -62,6 +67,11 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
       ? getSidebarStore().expandedProjectIds.has(taskParams.projectId)
       : null;
   const allDndIds = useMemo(() => rows.map(rowToDndId), [rows]);
+  const draggedTask = activeDragId ? parseDndId(activeDragId) : null;
+  // Dragging a task above the project list pins it (see `sidebarCollision`).
+  const showPinTarget =
+    draggedTask?.kind === 'task' &&
+    getTaskStore(draggedTask.projectId, draggedTask.taskId)?.data.isPinned === false;
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -155,7 +165,13 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
     if (!over || active.id === over.id) return;
     const aParsed = parseDndId(String(active.id));
     const oParsed = parseDndId(String(over.id));
-    if (!aParsed || !oParsed) return;
+    if (!aParsed || !oParsed || aParsed.kind === 'pin-target') return;
+    if (oParsed.kind === 'pin-target') {
+      if (aParsed.kind !== 'task') return;
+      if (pointerY === null) void getTaskStore(aParsed.projectId, aParsed.taskId)?.setPinned(true);
+      else pinTaskAt(aParsed.projectId, aParsed.taskId, pointerY);
+      return;
+    }
 
     const isAbove = isCursorAbove(pointerY, active.rect.current.translated, over.rect);
 
@@ -205,33 +221,37 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
       onDragCancel={clearDragPointerY}
     >
       <SortableContext items={allDndIds} strategy={verticalListSortingStrategy}>
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-3">
-          <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-            {virtualizer.getVirtualItems().map((vItem) => {
-              const row = rows[vItem.index];
-              if (!row) return null;
-              const dndId = rowToDndId(row);
-              const vStyle: React.CSSProperties = {
-                position: 'absolute',
-                top: vItem.start,
-                left: 0,
-                width: '100%',
-                height: `${vItem.size}px`,
-              };
-              if (row.kind === 'project') {
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {showPinTarget && <PinTarget />}
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-3">
+            <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+              {virtualizer.getVirtualItems().map((vItem) => {
+                const row = rows[vItem.index];
+                if (!row) return null;
+                const dndId = rowToDndId(row);
+                const vStyle: React.CSSProperties = {
+                  position: 'absolute',
+                  top: vItem.start,
+                  left: 0,
+                  width: '100%',
+                  height: `${vItem.size}px`,
+                };
+                if (row.kind === 'project') {
+                  return (
+                    <SortableRow key={row.projectId} dndId={dndId} style={vStyle}>
+                      <SidebarProjectItem projectId={row.projectId} />
+                    </SortableRow>
+                  );
+                }
                 return (
-                  <SortableRow key={row.projectId} dndId={dndId} style={vStyle}>
-                    <SidebarProjectItem projectId={row.projectId} />
+                  <SortableRow key={`${row.projectId}:${row.taskId}`} dndId={dndId} style={vStyle}>
+                    <SidebarTaskItem projectId={row.projectId} taskId={row.taskId} />
                   </SortableRow>
                 );
-              }
-              return (
-                <SortableRow key={`${row.projectId}:${row.taskId}`} dndId={dndId} style={vStyle}>
-                  <SidebarTaskItem projectId={row.projectId} taskId={row.taskId} />
-                </SortableRow>
-              );
-            })}
+              })}
+            </div>
           </div>
+          <SidebarScrollFade scrollRef={scrollRef} />
         </div>
       </SortableContext>
       <DragOverlay dropAnimation={null}>
@@ -244,10 +264,12 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
 
 const toProjectDndId = (id: string) => `proj::${id}`;
 const toTaskDndId = (projectId: string, taskId: string) => `task::${projectId}::${taskId}`;
+const PIN_TARGET_DND_ID = 'pin-target';
 
 type SidebarDndId =
   | { kind: 'project'; projectId: string }
-  | { kind: 'task'; projectId: string; taskId: string };
+  | { kind: 'task'; projectId: string; taskId: string }
+  | { kind: 'pin-target' };
 
 function rowToDndId(row: SidebarRow): string {
   if (row.kind === 'project') return toProjectDndId(row.projectId);
@@ -255,6 +277,7 @@ function rowToDndId(row: SidebarRow): string {
 }
 
 function parseDndId(id: string): SidebarDndId | null {
+  if (id === PIN_TARGET_DND_ID) return { kind: 'pin-target' };
   if (id.startsWith('proj::')) return { kind: 'project', projectId: id.slice(6) };
   if (id.startsWith('task::')) {
     const [, projectId, taskId] = id.split('::');
@@ -265,14 +288,21 @@ function parseDndId(id: string): SidebarDndId | null {
 
 // Project drags consider every visible row so dropping over a task maps to its
 // owning project in onDragEnd without changing the virtualized list mid-drag.
-// Task drags stay restricted to their own project's tasks.
+// Task drags stay restricted to their own project's tasks; a task dragged above
+// the list (onto the "Projects" header or the Pinned list) is over the pin target.
 const sidebarCollision: CollisionDetection = (args) => {
   const activeId = String(args.active.id);
   const parsed = parseDndId(activeId);
-  if (!parsed) return [];
+  if (!parsed || parsed.kind === 'pin-target') return [];
+  if (parsed.kind === 'task' && args.pointerCoordinates) {
+    const pinRect = args.droppableRects.get(PIN_TARGET_DND_ID);
+    if (pinRect && args.pointerCoordinates.y < pinRect.top + pinRect.height) {
+      return [{ id: PIN_TARGET_DND_ID }];
+    }
+  }
   const containers = args.droppableContainers.filter((c) => {
     const id = String(c.id);
-    if (id === activeId) return false;
+    if (id === activeId || id === PIN_TARGET_DND_ID) return false;
     if (parsed.kind === 'task') {
       const cParsed = parseDndId(id);
       return cParsed?.kind === 'task' && cParsed.projectId === parsed.projectId;
@@ -307,7 +337,7 @@ function isCursorAbove(
 
 function DragOverlayContent({ dndId }: { dndId: string }) {
   const parsed = parseDndId(dndId);
-  if (!parsed) return null;
+  if (!parsed || parsed.kind === 'pin-target') return null;
   return (
     <div className="px-3">
       <div className="rounded-lg bg-background-tertiary-2 shadow-md">
@@ -326,7 +356,7 @@ function InsertionIndicator({ pointerY }: { pointerY: number | null }) {
   if (!active || !over || active.id === over.id) return null;
   const activeParsed = parseDndId(String(active.id));
   const overParsed = parseDndId(String(over.id));
-  if (!activeParsed || !overParsed) return null;
+  if (!activeParsed || !overParsed || overParsed.kind === 'pin-target') return null;
   if (
     activeParsed.kind === 'project' &&
     overParsed.kind === 'task' &&
@@ -353,6 +383,32 @@ function InsertionIndicator({ pointerY }: { pointerY: number | null }) {
       }}
     />,
     document.body
+  );
+}
+
+/**
+ * While a task that is not pinned is dragged, covers the "Projects" header as the
+ * drop target for pinning it. Dropping anywhere above the list counts as well
+ * (see `sidebarCollision`), so the Pinned list itself takes the drop too.
+ */
+function PinTarget() {
+  const { setNodeRef, isOver } = useDroppable({ id: PIN_TARGET_DND_ID });
+  return (
+    <div
+      ref={setNodeRef}
+      className="absolute inset-x-0 bottom-full z-10 flex h-[40px] items-center bg-(--em-surface) pr-2.5 pl-3"
+    >
+      <div
+        className={cn(
+          'flex h-8 flex-1 items-center gap-2 rounded-lg border border-dashed border-border px-2 text-sm text-foreground-tertiary-passive',
+          isOver &&
+            'border-foreground-tertiary-passive bg-background-tertiary-2 text-foreground-tertiary'
+        )}
+      >
+        <Pin className="size-3.5" />
+        Pin
+      </div>
+    </div>
   );
 }
 

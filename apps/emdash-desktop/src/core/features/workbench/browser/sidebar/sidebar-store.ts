@@ -15,6 +15,8 @@ import {
   registeredTaskData,
   unregisteredTaskData,
 } from '@core/primitives/task-state/browser/task-state';
+import { projectPrefixes } from './project-prefix';
+
 export type SidebarTaskSortBy = WorkbenchSidebarState['taskSortBy'];
 
 export type TaskSortKind = 'created' | 'updated';
@@ -47,6 +49,15 @@ function isVisibleRegularTask(task: TaskStore): boolean {
 export type SidebarRow =
   | { kind: 'project'; projectId: string }
   | { kind: 'task'; projectId: string; taskId: string };
+
+const DEFAULT_PINNED_LIST_RATIO = 0.4;
+export const MIN_PINNED_LIST_RATIO = 0.1;
+export const MAX_PINNED_LIST_RATIO = 0.8;
+
+export function clampPinnedListRatio(ratio: number): number {
+  if (!Number.isFinite(ratio)) return DEFAULT_PINNED_LIST_RATIO;
+  return Math.min(MAX_PINNED_LIST_RATIO, Math.max(MIN_PINNED_LIST_RATIO, ratio));
+}
 
 /** Key of a pinned task in the saved pin order. */
 export function pinKey(projectId: string, taskId: string): string {
@@ -82,6 +93,7 @@ export class SidebarStore {
       expandedProjectIds: computed.struct,
       sidebarRows: computed,
       pinnedSidebarEntries: computed,
+      projectPrefixes: computed,
     });
   }
 
@@ -222,6 +234,40 @@ export class SidebarStore {
       this._pinsHandle.update((current) => ({ ...current, collapsed }));
     } else {
       this._fallbackPinsState = { ...this._fallbackPinsState, collapsed };
+    }
+  }
+
+  /**
+   * Save the Pinned list's order with a task placed at `index`, for a task about to be
+   * pinned by dropping it on the list.
+   */
+  placePinnedEntry(entry: { projectId: string; taskId: string }, index: number): void {
+    const key = pinKey(entry.projectId, entry.taskId);
+    const entries = this.pinnedSidebarEntries.filter((e) => pinKey(e.projectId, e.taskId) !== key);
+    entries.splice(Math.max(0, Math.min(index, entries.length)), 0, entry);
+    this.setPinnedOrder(entries);
+  }
+
+  /** Unique 3-character code per project, shown before pinned tasks. */
+  get projectPrefixes(): Map<string, string> {
+    // Oldest first, so existing projects keep their code when one is added.
+    const projects = Array.from(this.projectManager.projects.values())
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+      .map((p) => ({ id: p.id, name: p.name ?? '' }));
+    return projectPrefixes(projects);
+  }
+
+  /** Largest share of the sidebar the Pinned list may take. */
+  get pinnedListMaxHeightRatio(): number {
+    return clampPinnedListRatio(this.pinsState.maxHeightRatio ?? DEFAULT_PINNED_LIST_RATIO);
+  }
+
+  setPinnedListMaxHeightRatio(ratio: number): void {
+    const maxHeightRatio = clampPinnedListRatio(ratio);
+    if (this._pinsHandle) {
+      this._pinsHandle.update((current) => ({ ...current, maxHeightRatio }));
+    } else {
+      this._fallbackPinsState = { ...this._fallbackPinsState, maxHeightRatio };
     }
   }
 

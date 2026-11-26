@@ -17,6 +17,7 @@ import { TaskGitDiffStats } from '@core/features/tasks/contributions/browser/tas
 import { taskViewDef } from '@core/features/tasks/contributions/views';
 import { getTaskWorkspace } from '@core/features/workbench/api/browser/task-composition-selectors';
 import { TaskSidebarTrailingSlot } from '@core/features/workbench/browser/sidebar/task-sidebar-agent-status';
+import { getSidebarStore } from '@core/features/workbench/contributions/browser/app-stores';
 import { useOpenModal } from '@core/manifests/browser/modal-api';
 import {
   useNavigate,
@@ -91,6 +92,10 @@ export const SidebarTaskItem = observer(function SidebarTaskItem({
   const showLineChanges = interfaceSettings?.showLeftSidebarLineChanges ?? true;
   const showPrStatus = interfaceSettings?.showLeftSidebarPrStatus ?? true;
   const showTimestamps = interfaceSettings?.showLeftSidebarTimestamps ?? true;
+  const projectPrefix =
+    rowVariant === 'pinned' && (interfaceSettings?.showPinnedProjectPrefix ?? true)
+      ? getSidebarStore().projectPrefixes.get(projectId)
+      : undefined;
   const branchName = git?.branchName ?? undefined;
   const handleReconnect =
     workspaceStore?.connectionState != null ? () => workspaceStore.reconnect() : undefined;
@@ -128,6 +133,11 @@ export const SidebarTaskItem = observer(function SidebarTaskItem({
               task.isBootstrapping && 'text-foreground/40'
             )}
           >
+            {projectPrefix && (
+              <span className="font-mono text-xs text-foreground-tertiary-passive">
+                {projectPrefix}:{' '}
+              </span>
+            )}
             {taskName}
           </span>
         </SidebarMenuAction>
@@ -158,8 +168,9 @@ const RenderPrBadge = observer(function RenderPrBadge({ task }: { task: TaskStor
 });
 
 /**
- * Pins a task to the Pinned list at the top, or unpins it. Shown on hover; in
- * the project list it stays visible on pinned tasks to mark them.
+ * In the project list: a hover button that pins the task, or for a pinned task a
+ * small mark (unpinning happens in the Pinned list). In the Pinned list: a hover
+ * button that unpins it.
  */
 function PinToggle({
   isPinned,
@@ -170,8 +181,15 @@ function PinToggle({
   inPinnedList: boolean;
   onToggle: () => void;
 }) {
+  if (isPinned && !inPinnedList) {
+    return (
+      <span role="img" aria-label="Pinned" className="flex size-5 items-center justify-center">
+        <Pin className="size-3 text-foreground-tertiary-passive" />
+      </span>
+    );
+  }
   const label = isPinned ? 'Unpin' : 'Pin to top';
-  const Icon = isPinned && inPinnedList ? PinOff : Pin;
+  const Icon = isPinned ? PinOff : Pin;
   return (
     <Tooltip.Root>
       <Tooltip.Trigger
@@ -180,12 +198,7 @@ function PinToggle({
             type="button"
             aria-label={label}
             aria-pressed={isPinned}
-            className={cn(
-              'size-5',
-              isPinned && !inPinnedList
-                ? 'flex'
-                : 'hidden group-focus-within/row:flex group-hover/row:flex'
-            )}
+            className="hidden size-5 group-focus-within/row:flex group-hover/row:flex"
             onClick={(e) => {
               e.stopPropagation();
               onToggle();

@@ -19,6 +19,7 @@ const SidebarMetadataSettingsCard: React.FC = () => {
   const showLineChanges = interfaceSettings?.showLeftSidebarLineChanges ?? true;
   const showPrStatus = interfaceSettings?.showLeftSidebarPrStatus ?? true;
   const showTimestamps = interfaceSettings?.showLeftSidebarTimestamps ?? true;
+  const showPinnedPrefix = interfaceSettings?.showPinnedProjectPrefix ?? true;
 
   return (
     <SettingsCard>
@@ -79,6 +80,26 @@ const SidebarMetadataSettingsCard: React.FC = () => {
                 onCheckedChange={(checked) => update({ showLeftSidebarTimestamps: checked })}
                 disabled={busy}
                 aria-label="Show left sidebar timestamps"
+              />
+            </>
+          }
+        />
+        <SettingRow
+          title="Project code on pinned tasks"
+          description="Show a short code for the task's project before each pinned task."
+          control={
+            <>
+              <ResetToDefaultButton
+                visible={isFieldOverridden('showPinnedProjectPrefix')}
+                defaultLabel="on"
+                onReset={() => resetField('showPinnedProjectPrefix')}
+                disabled={busy}
+              />
+              <Switch
+                checked={showPinnedPrefix}
+                onCheckedChange={(checked) => update({ showPinnedProjectPrefix: checked })}
+                disabled={busy}
+                aria-label="Show project code on pinned tasks"
               />
             </>
           }

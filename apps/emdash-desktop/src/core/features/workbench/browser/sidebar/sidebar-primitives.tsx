@@ -74,7 +74,6 @@ export const SidebarItemMiniButton = React.forwardRef<
       className
     )}
     onMouseDown={(e) => e.preventDefault()}
-    onPointerDown={(e) => e.stopPropagation()}
     {...props}
   />
 ));

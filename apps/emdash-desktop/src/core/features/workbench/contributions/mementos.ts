@@ -38,6 +38,8 @@ const workbenchSidebarPinsV1Schema = z.object({
   order: z.array(z.string()),
   /** Whether the Pinned list is folded. Optional so state saved without it still reads. */
   collapsed: z.boolean().optional(),
+  /** Largest share of the sidebar the Pinned list may take, set by dragging its divider. */
+  maxHeightRatio: z.number().optional(),
 });
 
 export const workbenchSidebarPinsSchema = defineVersionedSchema()
