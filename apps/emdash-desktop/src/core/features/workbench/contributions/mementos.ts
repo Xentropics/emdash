@@ -40,6 +40,8 @@ const workbenchSidebarPinsV1Schema = z.object({
   collapsed: z.boolean().optional(),
   /** Largest share of the sidebar the Pinned list may take, set by dragging its divider. */
   maxHeightRatio: z.number().optional(),
+  /** How the Pinned list is sorted; `manual` (or absent) follows `order`. */
+  sortBy: z.enum(['manual', 'title', 'project']).optional(),
 });
 
 export const workbenchSidebarPinsSchema = defineVersionedSchema()

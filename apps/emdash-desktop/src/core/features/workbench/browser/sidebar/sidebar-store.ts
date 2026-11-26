@@ -50,6 +50,10 @@ export type SidebarRow =
   | { kind: 'project'; projectId: string }
   | { kind: 'task'; projectId: string; taskId: string };
 
+export type PinnedSortBy = NonNullable<WorkbenchSidebarPinsState['sortBy']>;
+const PINNED_SORT_CYCLE: readonly PinnedSortBy[] = ['manual', 'title', 'project'];
+const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+
 const DEFAULT_PINNED_LIST_RATIO = 0.4;
 export const MIN_PINNED_LIST_RATIO = 0.1;
 export const MAX_PINNED_LIST_RATIO = 0.8;
@@ -80,6 +84,8 @@ export class SidebarStore {
       | '_fallbackState'
       | '_handle'
       | '_fallbackPinsState'
+      | 'manualPinnedEntries'
+      | 'manualPinnedPairs'
       | '_pinsHandle'
       | '_revealedProjectIds'
       | 'projectManager'
@@ -93,6 +99,8 @@ export class SidebarStore {
       expandedProjectIds: computed.struct,
       sidebarRows: computed,
       pinnedSidebarEntries: computed,
+      manualPinnedEntries: computed,
+      manualPinnedPairs: computed,
       projectPrefixes: computed,
     });
   }
@@ -166,6 +174,47 @@ export class SidebarStore {
    * sort order. A pinned task also stays in its project's list.
    */
   get pinnedSidebarEntries(): { projectId: string; taskId: string }[] {
+    const sortBy = this.pinnedSortBy;
+    if (sortBy === 'manual') return this.manualPinnedEntries;
+    const key = ({ projectId, task }: { projectId: string; task: TaskStore }): string[] => {
+      const title = task.data.name ?? '';
+      if (sortBy === 'title') return [title];
+      const project = this.projectManager.projects.get(projectId);
+      return [project?.name ?? '', title];
+    };
+    const keyed = this.manualPinnedPairs.map((pair) => ({
+      entry: { projectId: pair.projectId, taskId: pair.task.data.id },
+      key: key(pair),
+    }));
+    keyed.sort((a, b) => {
+      for (let i = 0; i < a.key.length; i++) {
+        const d = collator.compare(a.key[i] ?? '', b.key[i] ?? '');
+        if (d !== 0) return d;
+      }
+      return 0;
+    });
+    return keyed.map(({ entry }) => entry);
+  }
+
+  get pinnedSortBy(): PinnedSortBy {
+    return this.pinsState.sortBy ?? 'manual';
+  }
+
+  /** Switch to the next sort of the Pinned list: your order, title, project/title. */
+  cyclePinnedSort(): void {
+    const index = PINNED_SORT_CYCLE.indexOf(this.pinnedSortBy);
+    this.updatePins({ sortBy: PINNED_SORT_CYCLE[(index + 1) % PINNED_SORT_CYCLE.length] });
+  }
+
+  /** Pinned tasks in the user's own order (dragged or added). */
+  private get manualPinnedEntries(): { projectId: string; taskId: string }[] {
+    return this.manualPinnedPairs.map(({ projectId, task }) => ({
+      projectId,
+      taskId: task.data.id,
+    }));
+  }
+
+  private get manualPinnedPairs(): { projectId: string; task: TaskStore }[] {
     const pairs: { projectId: string; task: TaskStore }[] = [];
     for (const project of this.projectManager.projects.values()) {
       const context = asAvailableProject(project);
@@ -186,7 +235,7 @@ export class SidebarStore {
         position(a.projectId, a.task) - position(b.projectId, b.task) ||
         this.compareSidebarTasks(a.task, b.task)
     );
-    return pairs.map(({ projectId, task }) => ({ projectId, taskId: task.data.id }));
+    return pairs;
   }
 
   /**
@@ -214,13 +263,20 @@ export class SidebarStore {
     this._pinsHandle = handle;
   }
 
-  /** Save the Pinned list's order, e.g. after a drag. */
+  /**
+   * Save the Pinned list's order, e.g. after a drag. A sorted list that is dragged
+   * becomes the user's own order.
+   */
   setPinnedOrder(entries: readonly { projectId: string; taskId: string }[]): void {
     const order = entries.map(({ projectId, taskId }) => pinKey(projectId, taskId));
+    this.updatePins({ order, sortBy: 'manual' });
+  }
+
+  private updatePins(patch: Partial<WorkbenchSidebarPinsState>): void {
     if (this._pinsHandle) {
-      this._pinsHandle.update((current) => ({ ...current, order }));
+      this._pinsHandle.update((current) => ({ ...current, ...patch }));
     } else {
-      this._fallbackPinsState = { ...this._fallbackPinsState, order };
+      this._fallbackPinsState = { ...this._fallbackPinsState, ...patch };
     }
   }
 
@@ -229,12 +285,7 @@ export class SidebarStore {
   }
 
   toggleCollapsedPinnedList(): void {
-    const collapsed = !this.isPinnedListCollapsed;
-    if (this._pinsHandle) {
-      this._pinsHandle.update((current) => ({ ...current, collapsed }));
-    } else {
-      this._fallbackPinsState = { ...this._fallbackPinsState, collapsed };
-    }
+    this.updatePins({ collapsed: !this.isPinnedListCollapsed });
   }
 
   /**
@@ -243,9 +294,11 @@ export class SidebarStore {
    */
   placePinnedEntry(entry: { projectId: string; taskId: string }, index: number): void {
     const key = pinKey(entry.projectId, entry.taskId);
-    const entries = this.pinnedSidebarEntries.filter((e) => pinKey(e.projectId, e.taskId) !== key);
-    entries.splice(Math.max(0, Math.min(index, entries.length)), 0, entry);
-    this.setPinnedOrder(entries);
+    const entries = this.manualPinnedEntries.filter((e) => pinKey(e.projectId, e.taskId) !== key);
+    // A sorted list places the task by its sort; keep it last in the user's order.
+    const at = this.pinnedSortBy === 'manual' ? index : entries.length;
+    entries.splice(Math.max(0, Math.min(at, entries.length)), 0, entry);
+    this.updatePins({ order: entries.map((e) => pinKey(e.projectId, e.taskId)) });
   }
 
   /** Unique 3-character code per project, shown before pinned tasks. */
@@ -263,12 +316,7 @@ export class SidebarStore {
   }
 
   setPinnedListMaxHeightRatio(ratio: number): void {
-    const maxHeightRatio = clampPinnedListRatio(ratio);
-    if (this._pinsHandle) {
-      this._pinsHandle.update((current) => ({ ...current, maxHeightRatio }));
-    } else {
-      this._fallbackPinsState = { ...this._fallbackPinsState, maxHeightRatio };
-    }
+    this.updatePins({ maxHeightRatio: clampPinnedListRatio(ratio) });
   }
 
   private get pinsState(): WorkbenchSidebarPinsState {

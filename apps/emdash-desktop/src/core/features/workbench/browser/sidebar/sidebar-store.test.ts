@@ -285,6 +285,40 @@ describe('SidebarStore project ordering', () => {
     expect(store.isPinnedListCollapsed).toBe(false);
   });
 
+  it('sorts the Pinned list and keeps a dragged sorted list as the user order', () => {
+    const manager = projectManagerWithTasks([
+      { id: 'project-1', createdAt: '2026-01-01T00:00:00.000Z', taskIds: ['b', 'c', 'a'] },
+    ]);
+    const project = manager.projects.get('project-1')!;
+    const context = project.context?.kind === 'available' ? project.context.context : undefined;
+    const tasks = context!.get(taskManagerStoreToken).tasks;
+    for (const id of ['a', 'b', 'c']) {
+      tasks.get(id)!.data.isPinned = true;
+      tasks.get(id)!.data.name = `Task ${id.toUpperCase()}`;
+    }
+    const store = new SidebarStore(manager);
+    const ids = () => store.pinnedSidebarEntries.map((entry) => entry.taskId);
+    const entry = (taskId: string) => ({ projectId: 'project-1', taskId });
+    store.setPinnedOrder([entry('c'), entry('a'), entry('b')]);
+    expect(ids()).toEqual(['c', 'a', 'b']);
+
+    store.cyclePinnedSort();
+    expect(store.pinnedSortBy).toBe('title');
+    expect(ids()).toEqual(['a', 'b', 'c']);
+    store.cyclePinnedSort();
+    expect(store.pinnedSortBy).toBe('project');
+    expect(ids()).toEqual(['a', 'b', 'c']);
+    store.cyclePinnedSort();
+    expect(store.pinnedSortBy).toBe('manual');
+    expect(ids()).toEqual(['c', 'a', 'b']);
+
+    // Dragging the sorted list (b before a) makes that the user order.
+    store.cyclePinnedSort();
+    store.setPinnedOrder([entry('b'), entry('a'), entry('c')]);
+    expect(store.pinnedSortBy).toBe('manual');
+    expect(ids()).toEqual(['b', 'a', 'c']);
+  });
+
   it('keeps the Pinned list height within bounds', () => {
     const store = new SidebarStore(projectManagerWithTasks([]));
     expect(store.pinnedListMaxHeightRatio).toBe(0.4);
