@@ -270,4 +270,18 @@ describe('SidebarStore project ordering', () => {
     expect(ids()).toEqual(['c', 'a', 'b']);
     expect(defaultOrder).toHaveLength(3);
   });
+
+  it('folds the Pinned list without losing its order', () => {
+    const store = new SidebarStore(projectManagerWithTasks([]));
+    store.setPinnedOrder([{ projectId: 'project-1', taskId: 'a' }]);
+    expect(store.isPinnedListCollapsed).toBe(false);
+
+    store.toggleCollapsedPinnedList();
+    expect(store.isPinnedListCollapsed).toBe(true);
+    store.setPinnedOrder([{ projectId: 'project-1', taskId: 'b' }]);
+    expect(store.isPinnedListCollapsed).toBe(true);
+
+    store.toggleCollapsedPinnedList();
+    expect(store.isPinnedListCollapsed).toBe(false);
+  });
 });

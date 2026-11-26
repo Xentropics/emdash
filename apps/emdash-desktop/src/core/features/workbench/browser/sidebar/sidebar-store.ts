@@ -212,6 +212,19 @@ export class SidebarStore {
     }
   }
 
+  get isPinnedListCollapsed(): boolean {
+    return this.pinsState.collapsed ?? false;
+  }
+
+  toggleCollapsedPinnedList(): void {
+    const collapsed = !this.isPinnedListCollapsed;
+    if (this._pinsHandle) {
+      this._pinsHandle.update((current) => ({ ...current, collapsed }));
+    } else {
+      this._fallbackPinsState = { ...this._fallbackPinsState, collapsed };
+    }
+  }
+
   private get pinsState(): WorkbenchSidebarPinsState {
     return this._pinsHandle?.value ?? this._fallbackPinsState;
   }

@@ -14,9 +14,11 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { MicroLabel } from '@emdash/ui/react/primitives';
+import { ChevronRight } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { pinKey } from '@core/features/workbench/browser/sidebar/sidebar-store';
 import { getSidebarStore } from '@core/features/workbench/contributions/browser/app-stores';
+import { cn } from '@core/primitives/styling/browser/cn';
 import { SidebarGroup, SidebarMenu } from './sidebar-primitives';
 import { SidebarTaskItem } from './task-item';
 
@@ -37,22 +39,49 @@ export const SidebarPinnedTaskList = observer(function SidebarPinnedTaskList() {
     sidebar.setPinnedOrder(arrayMove(entries, from, to));
   }
 
+  const isCollapsed = sidebar.isPinnedListCollapsed;
+
+  // Capped so a long Pinned list scrolls on its own instead of pushing the projects down.
   return (
-    <SidebarGroup className="flex shrink-0 flex-col">
-      <div className="flex h-[40px] items-center justify-between pr-2.5 pl-5">
+    <SidebarGroup className="mb-0 flex max-h-[40%] min-h-0 shrink-0 flex-col border-b">
+      <button
+        type="button"
+        aria-expanded={!isCollapsed}
+        className="group/pinned flex h-[40px] shrink-0 items-center gap-1 pr-2.5 pl-5 text-left"
+        onClick={() => sidebar.toggleCollapsedPinnedList()}
+      >
         <MicroLabel className="font-medium text-foreground-tertiary-passive">Pinned</MicroLabel>
-      </div>
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-          <SidebarMenu className="px-3 pb-2">
-            {entries.map(({ projectId, taskId }) => (
-              <SortablePinnedRow key={pinKey(projectId, taskId)} id={pinKey(projectId, taskId)}>
-                <SidebarTaskItem projectId={projectId} taskId={taskId} rowVariant="pinned" />
-              </SortablePinnedRow>
-            ))}
-          </SidebarMenu>
-        </SortableContext>
-      </DndContext>
+        <ChevronRight
+          className={cn(
+            'size-3 text-foreground-tertiary-passive transition-all duration-150',
+            isCollapsed ? 'opacity-100' : 'rotate-90 opacity-0 group-hover/pinned:opacity-100'
+          )}
+        />
+        {isCollapsed && (
+          <MicroLabel className="ml-auto text-foreground-tertiary-passive tabular-nums">
+            {entries.length}
+          </MicroLabel>
+        )}
+      </button>
+      {!isCollapsed && (
+        <div className="min-h-0 overflow-y-auto">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+              <SidebarMenu className="px-3 pb-2">
+                {entries.map(({ projectId, taskId }) => (
+                  <SortablePinnedRow key={pinKey(projectId, taskId)} id={pinKey(projectId, taskId)}>
+                    <SidebarTaskItem projectId={projectId} taskId={taskId} rowVariant="pinned" />
+                  </SortablePinnedRow>
+                ))}
+              </SidebarMenu>
+            </SortableContext>
+          </DndContext>
+        </div>
+      )}
     </SidebarGroup>
   );
 });

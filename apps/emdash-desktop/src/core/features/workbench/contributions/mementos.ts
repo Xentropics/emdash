@@ -36,6 +36,8 @@ const workbenchSidebarPinsV1Schema = z.object({
   version: z.literal('1'),
   /** Pinned tasks in display order, as `projectId:taskId`. */
   order: z.array(z.string()),
+  /** Whether the Pinned list is folded. Optional so state saved without it still reads. */
+  collapsed: z.boolean().optional(),
 });
 
 export const workbenchSidebarPinsSchema = defineVersionedSchema()
