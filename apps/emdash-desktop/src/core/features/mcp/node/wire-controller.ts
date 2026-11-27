@@ -12,6 +12,7 @@ import {
   type McpRuntimeBroker,
   type McpRuntimeResolveError as RuntimeResolveError,
 } from '../api/runtime-adapter';
+import type { AutoApproveRequests } from './auto-approve-requests';
 
 export type CreateMcpWireControllerOptions = Readonly<{
   runtimes: McpRuntimeBroker;
@@ -21,6 +22,8 @@ export type CreateMcpWireControllerOptions = Readonly<{
    * list, and this fills in the local URL and bearer token.
    */
   resolveSelfServer?: (providers: string[]) => Result<McpServer, string>;
+  /** Auto-approve requests from MCP clients, waiting for the user's answer. */
+  autoApproveRequests: Pick<AutoApproveRequests, 'host' | 'resolve'>;
 }>;
 
 export function createMcpWireController(options: CreateMcpWireControllerOptions): Controller {
@@ -41,6 +44,10 @@ export function createMcpWireController(options: CreateMcpWireControllerOptions)
       withAgentConfigResult(options.runtimes, input.host, (client) =>
         client.removeMcpForAgent(withoutHost(input), callOptions(meta))
       ),
+    autoApproveRequests: options.autoApproveRequests.host,
+    resolveAutoApproveRequest: async ({ id, allow }) => {
+      options.autoApproveRequests.resolve(id, allow);
+    },
     listForAgent: (input, meta) =>
       withAgentConfigResult(options.runtimes, input.host, (client) =>
         client.listMcpForAgent(withoutHost(input), callOptions(meta))

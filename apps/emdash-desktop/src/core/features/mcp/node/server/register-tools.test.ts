@@ -216,6 +216,7 @@ describe('buildEmdashMcpServer', () => {
       'rename_task',
       'run_task_script',
       'send_task_message',
+      'set_auto_approve',
       'stop_task_script',
     ]);
   });

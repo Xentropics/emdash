@@ -4,6 +4,7 @@ import type { LiveSource } from '@emdash/wire/rpc';
 import { encodeTopic } from '@emdash/wire/rpc';
 import { describe, expect, it, vi } from 'vitest';
 import { mcpContract } from '../api';
+import { AutoApproveRequests } from './auto-approve-requests';
 import { createMcpWireController } from './wire-controller';
 
 const remoteHost = hostRef('remote', 'ssh-2');
@@ -12,7 +13,10 @@ describe('createMcpWireController', () => {
   it('forwards MCP procedures to the selected host', async () => {
     const saveMcpServer = vi.fn(async () => ok(undefined));
     const client = vi.fn(async () => ok({ agentConfig: { saveMcpServer } }));
-    const controller = createMcpWireController({ runtimes: { client } as never });
+    const controller = createMcpWireController({
+      autoApproveRequests: new AutoApproveRequests(),
+      runtimes: { client } as never,
+    });
     const server = {
       name: 'context7',
       transport: 'stdio' as const,
@@ -34,6 +38,7 @@ describe('createMcpWireController', () => {
     const saveMcpServer = vi.fn(async () => ok(undefined));
     const client = vi.fn(async () => ok({ agentConfig: { saveMcpServer } }));
     const controller = createMcpWireController({
+      autoApproveRequests: new AutoApproveRequests(),
       runtimes: { client } as never,
       resolveSelfServer: (providers) =>
         ok({
@@ -69,6 +74,7 @@ describe('createMcpWireController', () => {
   it('fails the managed entry when the local server is not running', async () => {
     const saveMcpServer = vi.fn(async () => ok(undefined));
     const controller = createMcpWireController({
+      autoApproveRequests: new AutoApproveRequests(),
       runtimes: { client: async () => ok({ agentConfig: { saveMcpServer } }) } as never,
       resolveSelfServer: () => err('The Emdash MCP server is not running'),
     });
@@ -88,6 +94,7 @@ describe('createMcpWireController', () => {
     const saveMcpServer = vi.fn(async () => ok(undefined));
     const resolveSelfServer = vi.fn();
     const controller = createMcpWireController({
+      autoApproveRequests: new AutoApproveRequests(),
       runtimes: { client: async () => ok({ agentConfig: { saveMcpServer } }) } as never,
       resolveSelfServer: resolveSelfServer as never,
     });
@@ -110,6 +117,7 @@ describe('createMcpWireController', () => {
     const saveMcpServer = vi.fn(async () => ok(undefined));
     const resolveSelfServer = vi.fn();
     const controller = createMcpWireController({
+      autoApproveRequests: new AutoApproveRequests(),
       runtimes: { client: async () => ok({ agentConfig: { saveMcpServer } }) } as never,
       resolveSelfServer: resolveSelfServer as never,
     });
@@ -125,6 +133,7 @@ describe('createMcpWireController', () => {
     const source = liveSource([]);
     const state = vi.fn(() => ({ asLiveSource: () => source }));
     const controller = createMcpWireController({
+      autoApproveRequests: new AutoApproveRequests(),
       runtimes: {
         client: async () => ok({ agentConfig: { mcpServers: { state } } }),
       } as never,

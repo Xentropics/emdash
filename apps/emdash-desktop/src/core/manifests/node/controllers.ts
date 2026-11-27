@@ -144,7 +144,7 @@ export type DesktopControllerContext = {
   readonly legacyPortOperations: LegacyPortControllerOperations;
   readonly logger: Logger;
   readonly loggingOperations: LoggingControllerOperations;
-  readonly mcpSelfServer: Pick<EmdashMcpServerHandle, 'resolveSelfServer'>;
+  readonly mcpSelfServer: Pick<EmdashMcpServerHandle, 'resolveSelfServer' | 'autoApproveRequests'>;
   readonly notifications: NotificationService;
   readonly previewServerAccess: PreviewServerAccessOperations;
   readonly projectDeletion: ProjectDeletionDependencies;
@@ -283,6 +283,7 @@ export const desktopNodeControllers = {
       createMcpWireController({
         runtimes,
         resolveSelfServer: (providers) => mcpSelfServer.resolveSelfServer(providers),
+        autoApproveRequests: mcpSelfServer.autoApproveRequests,
       }),
   },
   skills: {

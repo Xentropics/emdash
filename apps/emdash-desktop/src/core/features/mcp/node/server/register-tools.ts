@@ -8,6 +8,7 @@ import {
 import { getProvisionedWorkspaceBranch } from '@core/features/workspaces/api/node/workspace-branch';
 import { projects, tasks } from '@core/services/app-db/node/schema';
 import { attachProject } from './attach-project';
+import { setConversationAutoApprove } from './auto-approve';
 import { createTaskFromPrompt, validProviderIds } from './create-task-from-prompt';
 import type { McpToolDependencies } from './dependencies';
 import { runTaskScript, stopTaskScript } from './run-task-script';
@@ -429,8 +430,11 @@ export function buildEmdashMcpServer(dependencies: McpToolDependencies): McpServ
           .describe(
             'Run the agent with permission prompts skipped, so it executes commands and edits ' +
               "without asking in terminal mode. Defaults to the provider's saved terminal setting, " +
-              'and is ignored for chat UI and providers without an auto-approve mode. The response reports the ' +
-              'value that was applied'
+              'and is ignored for chat UI and providers without an auto-approve mode. Whenever ' +
+              'auto-approve would apply, Emdash asks the user to allow it first and the call ' +
+              'waits for their answer; if they do not allow it, the task still starts, with ' +
+              'permission prompts, and the response has autoApproveDenied: true. The response ' +
+              'reports the value that was applied'
           ),
       },
       annotations: { destructiveHint: false, openWorldHint: false },
@@ -683,6 +687,37 @@ export function buildEmdashMcpServer(dependencies: McpToolDependencies): McpServ
     },
     guarded(dependencies, 'send_task_message', async (input) => {
       const result = await sendTaskMessage(dependencies, input);
+      return result.success ? textResult(result.data) : errorResult(result.error);
+    })
+  );
+
+  server.registerTool(
+    'set_auto_approve',
+    {
+      title: 'Set auto-approve',
+      description:
+        "Turns auto-approve (permission prompts skipped) on or off for a task's terminal agent " +
+        'conversation. Emdash asks the user to allow every change and the call waits for ' +
+        'their answer; it fails when they do not allow it. A running agent is restarted with ' +
+        'the new setting and resumes its session; a stopped one uses it on its next start. ' +
+        "Applies to the task's most recently active terminal conversation unless " +
+        'conversationId is given. Chat UI conversations are not supported.',
+      inputSchema: {
+        projectId: projectIdInput,
+        taskId: taskIdInput,
+        enabled: z.boolean().describe('True to skip permission prompts, false to ask again'),
+        conversationId: z
+          .string()
+          .optional()
+          .describe(
+            "Conversation id from get_task_status; defaults to the task's most recently " +
+              'active terminal conversation'
+          ),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    guarded(dependencies, 'set_auto_approve', async (input) => {
+      const result = await setConversationAutoApprove(dependencies, input);
       return result.success ? textResult(result.data) : errorResult(result.error);
     })
   );

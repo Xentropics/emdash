@@ -2,7 +2,12 @@ import type { RuntimeBroker } from '@emdash/core/services/runtime-broker/api';
 import type { Logger } from '@emdash/shared/logger';
 import { resolveConversationRuntimeTarget } from '@core/features/conversations/node/conversation-runtime-target';
 import { hydrateConversation } from '@core/features/conversations/node/hydrateConversation';
-import type { StartInitialConversation } from '@core/features/mcp/node/server/dependencies';
+import { launchTuiConversation } from '@core/features/conversations/node/launch-tui-conversation';
+import type {
+  RestartConversation,
+  StartInitialConversation,
+} from '@core/features/mcp/node/server/dependencies';
+import { resolveTask } from '@core/features/projects/api/node/utils';
 import type { TaskSessionLaunchContextResolver } from '@core/features/tasks/api/node/task-session-launch-context';
 import type { TaskSessionManager } from '@core/features/tasks/api/node/task-session-manager';
 import type { WorkspaceIdentityService } from '@core/features/workspaces/api/node/workspace-identity-service';
@@ -81,4 +86,42 @@ async function startAcpSession(
   return started.success
     ? { started: true }
     : { started: false, message: started.error.message ?? started.error.type };
+}
+
+/**
+ * Stops a terminal conversation's agent and launches it again from the stored
+ * conversation config, resuming the provider session. This is how a launch-time
+ * setting such as auto-approve takes effect on a conversation that is running.
+ *
+ * The caller must hold the project attachment, as for the initial conversation.
+ */
+export function createRestartConversation(
+  dependencies: Pick<
+    StartInitialConversationDependencies,
+    'db' | 'logger' | 'taskSessions' | 'telemetry'
+  >
+): RestartConversation {
+  return async ({ projectId, taskId, conversationId }) => {
+    try {
+      const task = resolveTask(dependencies.taskSessions, projectId, taskId);
+      if (!task) return { restarted: false, message: 'the task has no session in Emdash' };
+      await task.conversations.stopSession(conversationId);
+      await launchTuiConversation({
+        projectId,
+        taskId,
+        conversationId,
+        database: dependencies.db,
+        telemetry: dependencies.telemetry,
+        taskSessions: dependencies.taskSessions,
+      });
+      return { restarted: true };
+    } catch (error) {
+      dependencies.logger.warn('McpHttpServer: failed to restart the conversation', {
+        conversationId,
+        taskId,
+        error: String(error),
+      });
+      return { restarted: false, message: String(error) };
+    }
+  };
 }

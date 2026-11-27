@@ -18,6 +18,7 @@ import { resolveTaskBranchName } from '@core/primitives/tasks/api';
 import { buildWorkspaceConfigFromPreset } from '@core/primitives/workspaces/api';
 import type { AppSettingsService } from '@core/services/settings/node';
 import { withProjectAttachment } from './attach-project';
+import { findProjectName, providerDisplayName } from './auto-approve';
 import type { McpToolDependencies } from './dependencies';
 import { isValidBranchName, resolveFromBranch } from './resolve-from-branch';
 
@@ -50,6 +51,11 @@ export type McpCreateTaskResult = {
    * request was dropped.
    */
   autoApprove: boolean | null;
+  /**
+   * True when auto-approve would have applied but the user did not allow it in
+   * Emdash; the agent then runs with its permission prompts.
+   */
+  autoApproveDenied?: true;
   workspacePath: string;
   /** Set when the task exists but its agent was not started. */
   warning?: string;
@@ -212,6 +218,8 @@ export async function createTaskFromPrompt(
     );
   }
   let autoApprove: boolean | null = null;
+  // Set inside the attachment callback; an object so the flag is not narrowed away.
+  const approval = { denied: false };
   const conversationId = randomUUID();
   const taskId = randomUUID();
 
@@ -241,6 +249,23 @@ export async function createTaskFromPrompt(
         if (!launchSettings.success) return launchSettings;
         autoApprove = launchSettings.data.autoApprove;
         providerOptions = launchSettings.data.options;
+      }
+
+      // Auto-approve lets the agent act without asking, so an MCP client never
+      // turns it on by itself: the user allows it in the app for every new task.
+      if (autoApprove) {
+        const allowed = await dependencies.confirmAutoApprove({
+          kind: 'create',
+          enable: true,
+          taskName,
+          projectName: await findProjectName(dependencies, input.projectId),
+          providerName: providerDisplayName(provider),
+          restartsAgent: false,
+        });
+        if (!allowed) {
+          autoApprove = false;
+          approval.denied = true;
+        }
       }
 
       const params: CreateTaskParams = {
@@ -305,6 +330,7 @@ export async function createTaskFromPrompt(
     model: model ?? null,
     conversationType,
     autoApprove,
+    ...(approval.denied && { autoApproveDenied: true as const }),
     workspacePath: created.data.path,
     ...(created.data.warning && { warning: created.data.warning }),
   });

@@ -29,6 +29,7 @@ const ACP_HISTORY_TURNS = 20;
 
 type TaskRecord = Readonly<{
   id: string;
+  name: string;
   status: string;
   archivedAt: string | null;
   workspaceId: string | null;
@@ -43,13 +44,14 @@ type ConversationRecord = Readonly<{
   activityAt: string;
 }>;
 
-async function findTask(
+export async function findTask(
   dependencies: McpToolDependencies,
   input: { projectId: string; taskId: string }
 ): Promise<Result<TaskRecord, string>> {
   const [row] = await dependencies.db
     .select({
       id: tasks.id,
+      name: tasks.name,
       status: tasks.status,
       archivedAt: tasks.archivedAt,
       workspaceId: tasks.workspaceId,
@@ -73,7 +75,7 @@ function toMillis(timestamp: string): number {
 }
 
 /** The task's conversations, most recently active first. */
-async function listTaskConversations(
+export async function listTaskConversations(
   dependencies: McpToolDependencies,
   input: { projectId: string; taskId: string }
 ): Promise<ConversationRecord[]> {
@@ -106,7 +108,7 @@ async function listTaskConversations(
     .sort((a, b) => toMillis(b.activityAt) - toMillis(a.activityAt));
 }
 
-async function resolveTaskClient(
+export async function resolveTaskClient(
   dependencies: McpToolDependencies,
   task: TaskRecord
 ): Promise<Result<HostRuntimesClient, string>> {

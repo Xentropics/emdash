@@ -1,4 +1,5 @@
 import { machinesAppStoreContributions } from '@core/features/machines/contributions/app-stores';
+import { mcpAppStoreContributions } from '@core/features/mcp/contributions/app-stores';
 import { createProjectsAppStoreContributions } from '@core/features/projects/contributions/app-stores';
 import { sourceControlAppStoreContributions } from '@core/features/source-control/contributions/browser/app-stores';
 import { taskAppStoreContributions } from '@core/features/tasks/contributions/app-stores';
@@ -19,4 +20,5 @@ export const appStoreContributions: readonly AppScopedStoreContribution[] = [
   ...machinesAppStoreContributions,
   ...workbenchAppStoreContributions,
   ...updateAppStoreContributions,
+  ...mcpAppStoreContributions,
 ];

@@ -167,13 +167,16 @@ import { encryptedAppSecretsStore } from '@main/host/secrets/encrypted-app-secre
 import { toPlaintextSecretStore } from '@main/host/secrets/plaintext-secret-store';
 import { setTrayVisible } from '@main/host/tray';
 import { installUpdateNotifications } from '@main/host/updates/update-notifications';
-import { applyNativeTheme, isAppFocused } from '@main/host/window';
+import { applyNativeTheme, isAppFocused, showMainWindow } from '@main/host/window';
 import { log } from '@main/lib/logger';
 import { telemetryService } from '@main/lib/telemetry';
 import { appScope } from '../../core/app-scope';
 import { step } from '../../core/phase';
 import { setCoreServiceInstances } from '../../core/service-instances';
-import { createStartInitialConversation } from '../mcp-initial-conversation';
+import {
+  createRestartConversation,
+  createStartInitialConversation,
+} from '../mcp-initial-conversation';
 import { wireAccountTelemetry } from '../wiring';
 import type { DatabaseBundle } from './database';
 import type { InfrastructureBundle } from './infrastructure';
@@ -883,6 +886,13 @@ export async function bootServices(
       getProviderEnv: async (providerId) =>
         (await providerOverrideSettings.getItem(providerId))?.env,
     }),
+    restartConversation: createRestartConversation({
+      db,
+      logger: log,
+      taskSessions: taskSessionManager,
+      telemetry: telemetryService,
+    }),
+    revealApp: () => showMainWindow(),
     tasks: taskService,
     telemetry: telemetryService,
     tokenFilePath: join(app.getPath('userData'), 'mcp-token'),

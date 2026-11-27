@@ -20,13 +20,22 @@ vi.mock('@core/features/projects/api/node/settings/effective-settings', () => ({
 }));
 
 const readProviderSettings = vi.fn();
+const confirmAutoApprove = vi.fn();
 
 const logger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as never;
 
 beforeEach(() => {
   readProviderSettings.mockReset();
   readProviderSettings.mockResolvedValue(emptyProviderSettings);
+  confirmAutoApprove.mockReset();
+  confirmAutoApprove.mockResolvedValue(true);
 });
+
+const projectRows = {
+  select: () => ({
+    from: () => ({ where: () => ({ limit: async () => [{ name: 'Repo' }] }) }),
+  }),
+};
 
 function project(host: HostRef = LOCAL_HOST_REF): ProjectProvider {
   const main = { type: 'local', ref: 'refs/heads/main', oid: 'a' } as GitBranch;
@@ -78,6 +87,8 @@ function dependencies(options: {
     readProviderSettings,
     telemetry: { capture: () => {} },
     startInitialConversation: async () => ({ started: true }),
+    confirmAutoApprove,
+    db: projectRows,
   } as unknown as McpToolDependencies;
 }
 
@@ -136,6 +147,59 @@ describe('createTaskFromPrompt', () => {
       autoApprove: true,
       initialPrompt: 'Fix the bug',
     });
+  });
+
+  it('asks the user before starting an agent with auto-approve', async () => {
+    readProviderSettings.mockResolvedValue({
+      ...emptyProviderSettings,
+      pty: { version: '1', autoApprove: true },
+    });
+    const createTask = vi.fn(async () => ok({}));
+    const result = await createTaskFromPrompt(dependencies({ createTask }), {
+      projectId: 'project-1',
+      prompt: 'Fix the bug',
+      provider: 'claude',
+      name: 'Fix the bug',
+      branchName: 'feature/fix',
+    });
+    expect(result.success).toBe(true);
+    expect(confirmAutoApprove).toHaveBeenCalledWith({
+      kind: 'create',
+      enable: true,
+      taskName: 'Fix the bug',
+      projectName: 'Repo',
+      providerName: 'Claude Code',
+      restartsAgent: false,
+    });
+  });
+
+  it('starts the agent with permission prompts when the user denies auto-approve', async () => {
+    confirmAutoApprove.mockResolvedValue(false);
+    const createTask = vi.fn(async () => ok({}));
+    const result = await createTaskFromPrompt(dependencies({ createTask }), {
+      projectId: 'project-1',
+      prompt: 'Fix the bug',
+      provider: 'claude',
+      branchName: 'feature/fix',
+      autoApprove: true,
+    });
+    expect(result).toMatchObject({
+      success: true,
+      data: { autoApprove: false, autoApproveDenied: true },
+    });
+    const [params] = createTask.mock.calls[0] as unknown as [CreateTaskParams];
+    expect(params.taskConfig.initialConversation).toMatchObject({ autoApprove: false });
+  });
+
+  it('does not ask when auto-approve is off', async () => {
+    const createTask = vi.fn(async () => ok({}));
+    await createTaskFromPrompt(dependencies({ createTask }), {
+      projectId: 'project-1',
+      prompt: 'Fix the bug',
+      provider: 'claude',
+      branchName: 'feature/fix',
+    });
+    expect(confirmAutoApprove).not.toHaveBeenCalled();
   });
 
   it('lets an explicit terminal auto-approve override the saved preference', async () => {

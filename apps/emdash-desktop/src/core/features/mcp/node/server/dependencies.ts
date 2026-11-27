@@ -10,6 +10,7 @@ import type { WorkspaceIdentityService } from '@core/features/workspaces/api/nod
 import type { TelemetryService } from '@core/primitives/telemetry/api/telemetry';
 import type { AppDb } from '@core/services/app-db/node/db';
 import type { AppSettingsService } from '@core/services/settings/node';
+import type { AutoApproveRequestInput } from '../auto-approve-requests';
 
 /**
  * Everything the Emdash MCP tools need, injected from the boot composition root.
@@ -30,7 +31,20 @@ export type McpToolDependencies = Readonly<{
   appVersion: string;
   /** Starts a task's initial conversation once its workspace is provisioned. */
   startInitialConversation: StartInitialConversation;
+  /** Restarts a running terminal conversation's agent, resuming its session. */
+  restartConversation: RestartConversation;
+  /**
+   * Asks the user in the app to allow an auto-approve change. Resolves true only
+   * when they allow it; a timeout or shutdown counts as denied.
+   */
+  confirmAutoApprove(request: AutoApproveRequestInput): Promise<boolean>;
 }>;
+
+export type RestartConversation = (input: {
+  projectId: string;
+  taskId: string;
+  conversationId: string;
+}) => Promise<{ restarted: boolean; message?: string }>;
 
 export type StartInitialConversation = (input: {
   projectId: string;
