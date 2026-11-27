@@ -17,6 +17,7 @@ import type { TelemetryService } from '@core/primitives/telemetry/api/telemetry'
 import type { AppDb } from '@core/services/app-db/node/db';
 import type { AppSettingsService } from '@core/services/settings/node';
 import type { AutoApproveRequestInput } from '../auto-approve-requests';
+import type { ProjectGroupsStore } from './project-groups';
 
 /**
  * Everything the Emdash MCP tools need, injected from the boot composition root.
@@ -46,6 +47,8 @@ export type McpToolDependencies = Readonly<{
    * when they allow it; a timeout or shutdown counts as denied.
    */
   confirmAutoApprove(request: AutoApproveRequestInput): Promise<boolean>;
+  /** The sidebar's project groups (a fork feature kept in a memento). */
+  projectGroups: ProjectGroupsStore;
 }>;
 
 export type RestartConversation = (input: {

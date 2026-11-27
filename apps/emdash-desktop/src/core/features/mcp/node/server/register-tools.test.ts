@@ -209,16 +209,21 @@ describe('buildEmdashMcpServer', () => {
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'add_project',
       'archive_task',
+      'create_project_group',
       'create_task',
+      'delete_project_group',
       'delete_task',
       'get_task_status',
+      'list_project_groups',
       'list_projects',
       'list_tasks',
       'rename_task',
       'run_task_script',
       'send_task_message',
       'set_auto_approve',
+      'set_project_group',
       'stop_task_script',
+      'update_project_group',
     ]);
   });
 

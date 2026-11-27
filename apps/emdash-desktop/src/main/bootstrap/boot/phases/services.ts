@@ -67,6 +67,7 @@ import {
   createEmdashMcpServer,
   type EmdashMcpServerHandle,
 } from '@core/features/mcp/node/server/create-mcp-server';
+import { createMementoProjectGroupsStore } from '@core/features/mcp/node/server/project-groups';
 import { previewServerService } from '@core/features/preview-servers/api/node/preview-server-service-instance';
 import { PreviewServerAccessService } from '@core/features/preview-servers/node/preview-server-access-service';
 import type { ProjectAttachmentManager } from '@core/features/projects/api/node/project-attachment-manager';
@@ -901,6 +902,7 @@ export async function bootServices(
       telemetry: telemetryService,
     }),
     revealApp: () => showMainWindow(),
+    projectGroups: createMementoProjectGroupsStore(getMementosRuntimeClient),
     tasks: taskService,
     telemetry: telemetryService,
     tokenFilePath: join(app.getPath('userData'), 'mcp-token'),

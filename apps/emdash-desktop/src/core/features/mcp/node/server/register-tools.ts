@@ -12,6 +12,13 @@ import { attachProject } from './attach-project';
 import { setConversationAutoApprove } from './auto-approve';
 import { createTaskFromPrompt, validProviderIds } from './create-task-from-prompt';
 import type { McpToolDependencies } from './dependencies';
+import {
+  createProjectGroup,
+  deleteProjectGroup,
+  listProjectGroups,
+  setProjectGroup,
+  updateProjectGroup,
+} from './project-groups';
 import { runTaskScript, stopTaskScript } from './run-task-script';
 import {
   DEFAULT_STATUS_MAX_CHARS,
@@ -310,6 +317,99 @@ export function buildEmdashMcpServer(dependencies: McpToolDependencies): McpServ
     },
     guarded(dependencies, 'add_project', async (input) => {
       const result = await addLocalProject(dependencies, input);
+      return result.success ? textResult(result.data) : errorResult(result.error);
+    })
+  );
+
+  const groupIdInput = z.string().describe('Project group id from list_project_groups');
+
+  server.registerTool(
+    'list_project_groups',
+    {
+      title: 'List project groups',
+      description:
+        "Lists the sidebar's project groups in display order, each with its projects, plus " +
+        'the projects that are in no group.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    guarded(dependencies, 'list_project_groups', async () =>
+      textResult(await listProjectGroups(dependencies))
+    )
+  );
+
+  server.registerTool(
+    'create_project_group',
+    {
+      title: 'Create project group',
+      description:
+        'Creates a project group at the end of the sidebar, optionally moving projects into ' +
+        'it (a project belongs to one group at most). Returns the new group id.',
+      inputSchema: {
+        name: z.string().describe('Group name'),
+        projectIds: z
+          .array(z.string())
+          .optional()
+          .describe('Project ids from list_projects to move into the group'),
+      },
+      annotations: { destructiveHint: false, openWorldHint: false },
+    },
+    guarded(dependencies, 'create_project_group', async (input) => {
+      const result = await createProjectGroup(dependencies, input);
+      return result.success ? textResult(result.data) : errorResult(result.error);
+    })
+  );
+
+  server.registerTool(
+    'update_project_group',
+    {
+      title: 'Update project group',
+      description: 'Renames a project group, collapses or expands it in the sidebar, or both.',
+      inputSchema: {
+        groupId: groupIdInput,
+        name: z.string().optional().describe('New group name'),
+        collapsed: z.boolean().optional().describe('True to collapse the group in the sidebar'),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    guarded(dependencies, 'update_project_group', async (input) => {
+      const result = await updateProjectGroup(dependencies, input);
+      return result.success ? textResult(result.data) : errorResult(result.error);
+    })
+  );
+
+  server.registerTool(
+    'delete_project_group',
+    {
+      title: 'Delete project group',
+      description:
+        'Deletes a project group. Its projects are kept and become ungrouped; nothing else ' +
+        'changes.',
+      inputSchema: { groupId: groupIdInput },
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    guarded(dependencies, 'delete_project_group', async (input) => {
+      const result = await deleteProjectGroup(dependencies, input);
+      return result.success ? textResult(result.data) : errorResult(result.error);
+    })
+  );
+
+  server.registerTool(
+    'set_project_group',
+    {
+      title: 'Set project group',
+      description:
+        'Moves a project into a project group, or out of its group when groupId is null.',
+      inputSchema: {
+        projectId: projectIdInput,
+        groupId: groupIdInput
+          .nullable()
+          .describe('Project group id from list_project_groups, or null to ungroup the project'),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    guarded(dependencies, 'set_project_group', async (input) => {
+      const result = await setProjectGroup(dependencies, input);
       return result.success ? textResult(result.data) : errorResult(result.error);
     })
   );
