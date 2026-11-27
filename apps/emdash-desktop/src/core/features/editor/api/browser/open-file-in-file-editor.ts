@@ -102,10 +102,13 @@ export function makeFileLinkHandlers(
   projectId: string,
   taskId: string,
   options: { target?: 'active' | 'right' } = {}
-): { onOpenFile: (filePath: string) => void; onOpenExternal: (filePath: string) => void } {
+): {
+  onOpenFile: (filePath: string, line?: number) => void;
+  onOpenExternal: (filePath: string) => void;
+} {
   return {
-    onOpenFile: (filePath) => {
-      void openFileInTaskEditor(projectId, taskId, filePath, options);
+    onOpenFile: (filePath, line) => {
+      void openFileInTaskEditor(projectId, taskId, filePath, { ...options, line });
     },
     onOpenExternal: (filePath) => {
       const provisioned = asProvisioned(getTaskStore(projectId, taskId));

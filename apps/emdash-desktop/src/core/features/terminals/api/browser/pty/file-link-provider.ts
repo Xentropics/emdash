@@ -61,7 +61,7 @@ const activationModifierTracker = new ActivationModifierTracker();
 export class FileLinkProvider implements ILinkProvider {
   constructor(
     private readonly terminal: Terminal,
-    private readonly onOpenFile: (filePath: string) => void,
+    private readonly onOpenFile: (filePath: string, line?: number) => void,
     private readonly onOpenExternal: (filePath: string) => void,
     private readonly tracker = activationModifierTracker
   ) {
@@ -87,13 +87,13 @@ export class FileLinkProvider implements ILinkProvider {
       leave: () => {
         this.tracker.leave(link.decorations ?? decorations);
       },
-      activate: (event, linkText) => {
+      activate: (event) => {
         if (!isPrimaryMouseButton(event)) return;
         if (!this.tracker.isPressed(event)) return;
         if (match.isExternal) {
-          this.onOpenExternal(linkText);
+          this.onOpenExternal(match.text);
         } else {
-          this.onOpenFile(normalizeFilePath(linkText));
+          this.onOpenFile(normalizeFilePath(match.text), match.line);
         }
       },
       dispose: () => {

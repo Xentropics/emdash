@@ -202,6 +202,26 @@ describe('makeFileLinkHandlers', () => {
     );
   });
 
+  it('selects the line a terminal link names', async () => {
+    mocks.getTaskComposition.mockReturnValue({
+      paneLayout: {
+        focusedPane: {
+          activeResourceOfKind: () => ({ requestSelection: mocks.requestSelection }),
+        },
+      },
+    });
+    mocks.openFile.mockReturnValue(true);
+    const handlers = makeFileLinkHandlers('project-1', 'task-1');
+    handlers.onOpenFile('src/terminal-link.ts', 42);
+    await flushMicrotasks();
+
+    expect(mocks.requestSelection).toHaveBeenCalledWith({
+      lineNumber: 42,
+      startColumn: 1,
+      endColumn: 1,
+    });
+  });
+
   it('routes onOpenExternal to the explicit openWithOS verb', async () => {
     const handlers = makeFileLinkHandlers('project-1', 'task-1');
     handlers.onOpenExternal('/outside/report.pdf');

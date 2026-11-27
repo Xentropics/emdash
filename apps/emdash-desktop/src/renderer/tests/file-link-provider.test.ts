@@ -64,14 +64,16 @@ describe('file link provider', () => {
       },
       text: 'src/main/core/conversations/impl/local-conversation.ts',
       isExternal: false,
+      line: 140,
     };
     const expectedSecondLineLink = {
       range: {
         start: { x: 3, y: 2 },
-        end: { x: 42, y: 2 },
+        end: { x: 46, y: 2 },
       },
       text: 'src/main/core/conversations/impl/local-conversation.ts',
       isExternal: false,
+      line: 140,
     };
     expect(findFileLinks(buffer, 1)).toEqual([expectedFirstLineLink]);
     expect(findFileLinks(buffer, 2)).toEqual([expectedSecondLineLink]);
@@ -83,7 +85,8 @@ describe('file link provider', () => {
       new MockBufferLine('  for more implementation details.'),
     ]);
 
-    expect(findFileLinks(buffer, 1)).toEqual([]);
+    // The folder on its own is a link; it is not joined with the prose below.
+    expect(findFileLinks(buffer, 1).map((link) => link.text)).toEqual(['src/main/core/']);
     expect(findFileLinks(buffer, 2)).toEqual([]);
   });
 
@@ -94,7 +97,7 @@ describe('file link provider', () => {
       new MockBufferLine('  baz.ts'),
     ]);
 
-    expect(findFileLinks(buffer, 3)).toEqual([]);
+    expect(findFileLinks(buffer, 3).map((link) => link.text)).toEqual(['baz.ts']);
   });
 
   it('classifies absolute and home-relative paths as external', () => {
@@ -126,6 +129,87 @@ describe('file link provider', () => {
     const buffer = makeBuffer([new MockBufferLine('see https://example.com/src/file.ts')]);
 
     expect(findFileLinks(buffer, 1)).toEqual([]);
+  });
+
+  it('matches paths with non-ASCII letters, including decomposed ones', () => {
+    const composed = 'see Prospects/Curaçao/concept.md';
+    const decomposed = 'see Prospects/Curac\u0327ao/concept.md';
+
+    expect(findFileLinks(makeBuffer([new MockBufferLine(composed)]), 1)).toEqual([
+      {
+        range: { start: { x: 5, y: 1 }, end: { x: 32, y: 1 } },
+        text: 'Prospects/Curaçao/concept.md',
+        isExternal: false,
+      },
+    ]);
+    // The combining cedilla shares the `c` cell, so the range stays the same width.
+    expect(findFileLinks(makeBuffer([new MockBufferLine(decomposed)]), 1)).toEqual([
+      {
+        range: { start: { x: 5, y: 1 }, end: { x: 32, y: 1 } },
+        text: 'Prospects/Curac\u0327ao/concept.md',
+        isExternal: false,
+      },
+    ]);
+  });
+
+  it('keeps a line suffix in the link and reports the line', () => {
+    const buffer = makeBuffer([new MockBufferLine('at src/foo/bar.ts:42:7, then README.md:3.')]);
+
+    expect(findFileLinks(buffer, 1)).toEqual([
+      {
+        range: { start: { x: 4, y: 1 }, end: { x: 22, y: 1 } },
+        text: 'src/foo/bar.ts',
+        isExternal: false,
+        line: 42,
+      },
+      {
+        range: { start: { x: 30, y: 1 }, end: { x: 40, y: 1 } },
+        text: 'README.md',
+        isExternal: false,
+        line: 3,
+      },
+    ]);
+  });
+
+  it('matches quoted paths and escaped spaces', () => {
+    const buffer = makeBuffer([
+      new MockBufferLine(
+        'log "~/Library/Application Support/emdash/emdash.log" or ~/My\\ Notes/todo.md'
+      ),
+    ]);
+
+    expect(findFileLinks(buffer, 1)).toEqual([
+      {
+        range: { start: { x: 6, y: 1 }, end: { x: 52, y: 1 } },
+        text: '~/Library/Application Support/emdash/emdash.log',
+        isExternal: true,
+      },
+      {
+        range: { start: { x: 58, y: 1 }, end: { x: 76, y: 1 } },
+        text: '~/My Notes/todo.md',
+        isExternal: true,
+      },
+    ]);
+  });
+
+  it('matches bare file names, folders and absolute paths without an extension', () => {
+    const buffer = makeBuffer([
+      new MockBufferLine('edit package.json in emdash-local/ or /usr/local/bin, e.g. not this.'),
+    ]);
+
+    expect(findFileLinks(buffer, 1).map(({ text, isExternal }) => ({ text, isExternal }))).toEqual([
+      { text: 'package.json', isExternal: false },
+      { text: 'emdash-local/', isExternal: true },
+      { text: '/usr/local/bin', isExternal: true },
+    ]);
+  });
+
+  it('leaves quoted prose and single words alone', () => {
+    const buffer = makeBuffer([
+      new MockBufferLine("it's 'not a path' and don't touch src/a.ts or v1.2.13 or and/or"),
+    ]);
+
+    expect(findFileLinks(buffer, 1).map((link) => link.text)).toEqual(['src/a.ts']);
   });
 
   it('requires Command on macOS and Control elsewhere', () => {
@@ -165,12 +249,12 @@ describe('file link provider', () => {
   });
 
   it('only opens links when the activation modifier is pressed', () => {
-    const openedFiles: string[] = [];
+    const openedFiles: [string, number | undefined][] = [];
     const openedExternal: string[] = [];
-    const buffer = makeBuffer([new MockBufferLine('open ./src/app.ts and /tmp/report.md')]);
+    const buffer = makeBuffer([new MockBufferLine('open ./src/app.ts:12 and /tmp/report.md')]);
     const provider = new FileLinkProvider(
       { buffer: { active: buffer } } as never,
-      (filePath) => openedFiles.push(filePath),
+      (filePath, line) => openedFiles.push([filePath, line]),
       (filePath) => openedExternal.push(filePath),
       new ActivationModifierTracker(true)
     );
@@ -208,7 +292,7 @@ describe('file link provider', () => {
       externalLink.text
     );
 
-    expect(openedFiles).toEqual(['src/app.ts']);
+    expect(openedFiles).toEqual([['src/app.ts', 12]]);
     expect(openedExternal).toEqual(['/tmp/report.md']);
   });
 });

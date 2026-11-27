@@ -106,7 +106,7 @@ export class FrontendPty {
   constructor(
     readonly sessionId: string,
     theme?: SessionTheme,
-    onOpenFile?: (filePath: string) => void,
+    onOpenFile?: (filePath: string, line?: number) => void,
     onOpenExternal?: (filePath: string) => void,
     private readonly connector: FrontendPtyConnector = noopConnector()
   ) {

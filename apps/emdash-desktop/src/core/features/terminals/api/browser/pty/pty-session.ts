@@ -19,7 +19,7 @@ export class PtySession {
   constructor(
     readonly sessionId: string,
     private readonly prepare?: () => Promise<PtySessionPrepareResult>,
-    private readonly onOpenFile?: (filePath: string) => void,
+    private readonly onOpenFile?: (filePath: string, line?: number) => void,
     private readonly onOpenExternal?: (filePath: string) => void,
     private readonly connector: FrontendPtyConnector = noopConnector(),
     private readonly canConnect: () => boolean = () => true
