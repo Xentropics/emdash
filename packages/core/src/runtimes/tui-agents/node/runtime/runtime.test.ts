@@ -165,6 +165,48 @@ describe('TuiAgentsRuntime', () => {
     }
   );
 
+  it('starts the agent at a size requested while it was still starting', async () => {
+    const { runtime, spawner, agentHost } = createRuntime();
+    const command = deferred<Awaited<ReturnType<AgentPluginHost['buildPromptCommand']>>>();
+    vi.mocked(agentHost.buildPromptCommand).mockReturnValueOnce(command.promise);
+
+    const started = runtime.startSession(startInput({ cols: 138, rows: 61 }));
+    await vi.waitFor(() => expect(agentHost.buildPromptCommand).toHaveBeenCalled());
+    // The renderer's terminal mounts and reports the real grid before the process exists.
+    expect(runtime.resize('conversation-1', 141, 37)).toEqual(ok(undefined));
+    command.resolve(ok({ command: 'agent', args: ['run'], env: {} }));
+    await started;
+
+    expect(spawner.specs[0]).toMatchObject({ cols: 141, rows: 37 });
+    expect(
+      peek(runtime.sessionsLiveModel.get(undefined)!.states.list)['conversation-1']
+    ).toMatchObject({
+      cols: 141,
+      rows: 37,
+    });
+    await runtime.dispose();
+  });
+
+  it('respawns at the latest size, not the launch size', async () => {
+    const { runtime, spawner } = createRuntime();
+    await runtime.startSession(startInput({ cols: 80, rows: 24 }));
+    runtime.resize('conversation-1', 141, 37);
+    expect(spawner.processes[0]!.resizes).toEqual([{ cols: 141, rows: 37 }]);
+
+    await runtime.stopSession('conversation-1');
+    await runtime.startSession(startInput({ cols: 141, rows: 37 }));
+    expect(spawner.specs[1]).toMatchObject({ cols: 141, rows: 37 });
+    await runtime.dispose();
+  });
+
+  it('reports not-found when resizing a conversation it does not know', () => {
+    const { runtime } = createRuntime();
+    expect(runtime.resize('missing', 100, 30)).toEqual({
+      success: false,
+      error: { type: 'not-found', conversationId: 'missing' },
+    });
+  });
+
   it('retains stopped output when replacement spawning fails', async () => {
     const { runtime, spawner } = createRuntime();
     await runtime.startSession(startInput());

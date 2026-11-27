@@ -448,10 +448,24 @@ export class TuiAgentsRuntime {
 
   resize(conversationId: string, cols: number, rows: number): Result<void, TuiInputError> {
     const active = this.sessions.get(conversationId);
-    if (!active?.pty) return err({ type: 'not-found', conversationId });
+    const config = this.configs.get(conversationId);
+    if (!active?.pty && !config) return err({ type: 'not-found', conversationId });
+    // Remember the size even while the agent is still starting: the renderer sends it
+    // once, as soon as its terminal mounts, which is often before the process exists.
+    // spawnInto applies it, and later respawns start at it instead of the launch size.
+    if (config && (config.input.cols !== cols || config.input.rows !== rows)) {
+      this.configs.set(conversationId, { ...config, input: { ...config.input, cols, rows } });
+    }
+    if (!active?.pty) return ok(undefined);
     active.pty.resize(cols, rows);
     this.updateSessionSize(conversationId, cols, rows);
     return ok(undefined);
+  }
+
+  /** The latest size requested for a conversation, falling back to its launch size. */
+  private currentSize(input: TuiAgentStartInput): { cols: number; rows: number } {
+    const latest = this.configs.get(input.conversationId)?.input ?? input;
+    return { cols: latest.cols, rows: latest.rows };
   }
 
   outputLog(key: { conversationId: string }): LiveSource {
@@ -586,6 +600,7 @@ export class TuiAgentsRuntime {
       return this.cancelledSpawn(config.input.conversationId);
     }
     let pty: PtySession;
+    const spawnSize = this.currentSize(config.input);
     try {
       pty = await this.registry.create(
         config.input.conversationId,
@@ -593,8 +608,8 @@ export class TuiAgentsRuntime {
           invocation: spawnSpec.invocation,
           cwd: config.input.cwd,
           env: spawnSpec.env,
-          cols: config.input.cols,
-          rows: config.input.rows,
+          cols: spawnSize.cols,
+          rows: spawnSize.rows,
         },
         {
           output: session.output,
@@ -619,7 +634,7 @@ export class TuiAgentsRuntime {
                 reason: 'resume-process-exited-early',
               });
               const nextConfig: TuiSessionConfig = {
-                input: config.input,
+                input: this.configs.get(config.input.conversationId)?.input ?? config.input,
                 intent: 'fresh',
                 resumeFallback: true,
               };
@@ -655,8 +670,7 @@ export class TuiAgentsRuntime {
               ),
               status: pty.exited ? 'exited' : 'running',
               pid: pty.getPid(),
-              cols: config.input.cols,
-              rows: config.input.rows,
+              ...this.currentSize(config.input),
               resume: isResuming ? { requested: true, outcome: 'resumed' } : resumeState,
               startedAt,
               exit: pty.exitStatus
@@ -678,6 +692,12 @@ export class TuiAgentsRuntime {
     }
 
     session.pty = pty;
+    // A resize that arrived while the process was being created is applied now.
+    const size = this.currentSize(config.input);
+    if (size.cols !== spawnSize.cols || size.rows !== spawnSize.rows) {
+      pty.resize(size.cols, size.rows);
+      this.updateSessionSize(config.input.conversationId, size.cols, size.rows);
+    }
     // Lifecycle report (spec §7.4): a resume spawn is optimistically 'loaded' (the CLI owns
     // replay; early exit triggers the fresh-fallback respawn below, which reports
     // 'replaced-by-new'); a fresh-fallback respawn means history was not restored; a plain
@@ -709,8 +729,7 @@ export class TuiAgentsRuntime {
       sessionId: this.currentProviderSessionId(config.input.conversationId, config.input.sessionId),
       status: 'running',
       pid: pty.getPid(),
-      cols: config.input.cols,
-      rows: config.input.rows,
+      ...this.currentSize(config.input),
       resume: isResuming ? { requested: true, outcome: 'resumed' } : resumeState,
       startedAt,
     });
