@@ -9,13 +9,17 @@ import {
 } from '@core/features/agents/api/node/plugin-registry';
 import { DEFAULT_AGENT_ID } from '@core/features/agents/contributions/settings';
 import type { ProviderSettingsSnapshot } from '@core/features/conversations/api/provider-settings';
+import type { ProjectProvider } from '@core/features/projects/api/node/project-provider';
 import {
   generateRandom,
   generateTaskName,
 } from '@core/features/tasks/api/node/name-generation/generateTaskName';
 import type { CreateTaskParams, TaskConfig } from '@core/primitives/tasks/api';
 import { resolveTaskBranchName } from '@core/primitives/tasks/api';
-import { buildWorkspaceConfigFromPreset } from '@core/primitives/workspaces/api';
+import {
+  buildWorkspaceConfigFromPreset,
+  type WorkspaceConfig,
+} from '@core/primitives/workspaces/api';
 import type { AppSettingsService } from '@core/services/settings/node';
 import { withProjectAttachment } from './attach-project';
 import { findProjectName, providerDisplayName } from './auto-approve';
@@ -37,7 +41,12 @@ export type McpCreateTaskInput = {
 export type McpCreateTaskResult = {
   taskId: string;
   taskName: string;
-  branchName: string;
+  /**
+   * Null when the project is a folder without a git repository (or a repository
+   * with no commits yet): the task then runs in the project folder itself, as the
+   * new-task modal does, with no branch or worktree.
+   */
+  branchName: string | null;
   /**
    * Null when the task was created without a prompt: no agent conversation is
    * started, so no provider or model is chosen and conversationType is 'none'.
@@ -162,7 +171,44 @@ async function resolveBranchName(
 }
 
 /**
- * Creates a task in a fresh worktree, provisions it, and starts the initial
+ * Picks the workspace the new-task modal would: a fresh worktree on a new branch,
+ * or the project folder itself when the project has no git repository to branch
+ * from (the modal's "repo-root" fallback).
+ */
+async function resolveWorkspaceConfig(
+  project: ProjectProvider,
+  input: McpCreateTaskInput,
+  branchName: string,
+  pushBranch: boolean
+): Promise<Result<{ config: WorkspaceConfig; branchName: string | null }, string>> {
+  if (!project.hasRepository) {
+    if (input.branchName || input.baseBranch) {
+      return err(
+        'This project is a folder without a git repository; omit branchName and baseBranch.'
+      );
+    }
+    const workspaceId = project.project.repositoryWorkspaceId;
+    if (!workspaceId) return err('The project folder is not registered as a workspace yet.');
+    return ok({
+      config: buildWorkspaceConfigFromPreset('repo-root', { repositoryWorkspaceId: workspaceId }),
+      branchName: null,
+    });
+  }
+  const fromBranch = await resolveFromBranch(project, input.baseBranch, branchName);
+  if (!fromBranch.success) return fromBranch;
+  return ok({
+    config: buildWorkspaceConfigFromPreset(
+      'new-worktree',
+      {},
+      { fromBranch: fromBranch.data, branchName, pushBranch }
+    ),
+    branchName,
+  });
+}
+
+/**
+ * Creates a task in a fresh worktree (or the project folder, for a project
+ * without git), provisions it, and starts the initial
  * agent conversation from a prompt. Mirrors the new-task modal's flow, driven by
  * the local MCP server instead of the renderer.
  */
@@ -233,8 +279,8 @@ export async function createTaskFromPrompt(
     dependencies.projects,
     input.projectId,
     async (project) => {
-      const fromBranch = await resolveFromBranch(project, input.baseBranch, branchName);
-      if (!fromBranch.success) return fromBranch;
+      const workspace = await resolveWorkspaceConfig(project, input, branchName, pushBranch);
+      if (!workspace.success) return workspace;
 
       let providerOptions: ProviderSettingsSnapshot['acp']['options'] | undefined;
       if (provider && conversationType !== 'none') {
@@ -281,11 +327,7 @@ export async function createTaskFromPrompt(
           autoApprove,
           providerOptions,
         }),
-        workspaceConfig: buildWorkspaceConfigFromPreset(
-          'new-worktree',
-          {},
-          { fromBranch: fromBranch.data, branchName, pushBranch }
-        ),
+        workspaceConfig: workspace.data.config,
       };
 
       const result = await dependencies.tasks.createTask(params);
@@ -317,7 +359,7 @@ export async function createTaskFromPrompt(
                 conversationId,
                 type: conversationType,
               });
-      return ok({ path: provisioned.data.path, warning });
+      return ok({ path: provisioned.data.path, warning, branchName: workspace.data.branchName });
     }
   );
   if (!created.success) return created;
@@ -325,7 +367,7 @@ export async function createTaskFromPrompt(
   return ok({
     taskId,
     taskName,
-    branchName,
+    branchName: created.data.branchName,
     provider,
     model: model ?? null,
     conversationType,

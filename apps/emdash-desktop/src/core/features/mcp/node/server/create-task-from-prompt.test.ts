@@ -37,10 +37,12 @@ const projectRows = {
   }),
 };
 
-function project(host: HostRef = LOCAL_HOST_REF): ProjectProvider {
+function project(host: HostRef = LOCAL_HOST_REF, hasRepository = true): ProjectProvider {
   const main = { type: 'local', ref: 'refs/heads/main', oid: 'a' } as GitBranch;
   return {
     projectId: 'project-1',
+    project: { repositoryWorkspaceId: 'workspace-root' },
+    hasRepository,
     host,
     repository: { path: '/repo' },
     settings: {},
@@ -108,6 +110,39 @@ async function createdWorkspaceGit(options: {
 }
 
 describe('createTaskFromPrompt', () => {
+  it('runs the task in the project folder when the project has no git repository', async () => {
+    const createTask = vi.fn(async () => ok({}));
+    const deps = dependencies({ createTask });
+    const folder = project(LOCAL_HOST_REF, false);
+    deps.projects.requireAttached = () => ok(folder);
+
+    const result = await createTaskFromPrompt(deps, { projectId: 'project-1', name: 'Review' });
+
+    expect(result).toMatchObject({ success: true, data: { branchName: null } });
+    const [params] = createTask.mock.calls[0] as unknown as [CreateTaskParams];
+    expect(params.workspaceConfig).toEqual({
+      version: '2',
+      git: { kind: 'none' },
+      workspace: { kind: 'repository-instance', workspaceId: 'workspace-root' },
+    });
+  });
+
+  it('refuses branch options for a project without a git repository', async () => {
+    const createTask = vi.fn(async () => ok({}));
+    const deps = dependencies({ createTask });
+    const folder = project(LOCAL_HOST_REF, false);
+    deps.projects.requireAttached = () => ok(folder);
+
+    const result = await createTaskFromPrompt(deps, {
+      projectId: 'project-1',
+      name: 'Review',
+      baseBranch: 'main',
+    });
+
+    expect(result).toMatchObject({ success: false });
+    expect(createTask).not.toHaveBeenCalled();
+  });
+
   it('pushes the new branch when auto-push on create is enabled', async () => {
     expect(await createdWorkspaceGit({ pushOnCreate: true })).toMatchObject({ pushBranch: true });
   });

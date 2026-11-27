@@ -408,7 +408,8 @@ export function buildEmdashMcpServer(dependencies: McpToolDependencies): McpServ
           .string()
           .optional()
           .describe(
-            'New branch name; must not already exist. Derived from the task name when omitted'
+            'New branch name; must not already exist. Derived from the task name when omitted. ' +
+              'Not allowed for a project without git, whose tasks run in the project folder'
           ),
         baseBranch: z
           .string()
