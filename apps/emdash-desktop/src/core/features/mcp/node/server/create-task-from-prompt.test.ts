@@ -266,7 +266,7 @@ describe('createTaskFromPrompt', () => {
       projectId: 'project-1',
       prompt: 'Fix the bug',
       provider: 'claude',
-      chatUi: true,
+      mode: 'gui',
       autoApprove: true,
       branchName: 'feature/fix',
     });
@@ -305,7 +305,7 @@ describe('createTaskFromPrompt', () => {
       projectId: 'project-1',
       prompt: 'Fix the bug',
       provider: 'claude',
-      chatUi: true,
+      mode: 'gui',
       model: 'sonnet',
       branchName: 'feature/fix',
     });
@@ -320,7 +320,7 @@ describe('createTaskFromPrompt', () => {
       projectId: 'project-1',
       prompt: 'Fix the bug',
       provider: 'claude',
-      chatUi: true,
+      mode: 'gui',
       model: 'sonnet',
       branchName: 'feature/fix',
     });
@@ -341,19 +341,19 @@ describe('createTaskFromPrompt', () => {
     });
     expect(result).toMatchObject({
       success: false,
-      error: expect.stringContaining('Pass chatUi: true'),
+      error: expect.stringContaining("Pass mode: 'gui'"),
     });
     expect(readProviderSettings).not.toHaveBeenCalled();
     expect(createTask).not.toHaveBeenCalled();
   });
 
-  it('delivers the prompt through chat UI for a provider that has no terminal prompt', async () => {
+  it('delivers the prompt in GUI mode for a provider that has no terminal prompt', async () => {
     const createTask = vi.fn(async () => ok({}));
     const result = await createTaskFromPrompt(dependencies({ createTask }), {
       projectId: 'project-1',
       prompt: 'Fix the bug',
       provider: 'kimi',
-      chatUi: true,
+      mode: 'gui',
       branchName: 'feature/fix',
     });
     expect(result).toMatchObject({ success: true, data: { conversationType: 'acp' } });

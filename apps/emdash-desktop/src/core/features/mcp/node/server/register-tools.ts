@@ -386,7 +386,7 @@ export function buildEmdashMcpServer(dependencies: McpToolDependencies): McpServ
           .optional()
           .describe(
             'The prompt the coding agent starts with. Omit to create the task without starting ' +
-              'an agent. Some providers can only take a prompt in chat UI'
+              "an agent. Some providers can only take a prompt in mode 'gui'"
           ),
         name: z.string().optional().describe('Task name; generated when omitted'),
         provider: z
@@ -401,7 +401,7 @@ export function buildEmdashMcpServer(dependencies: McpToolDependencies): McpServ
           .describe(
             "Model id for the agent; must be one of the provider's selectable models. " +
               "Defaults to the provider CLI's default model in a terminal, or saved provider " +
-              'settings in chat UI. Chat UI model overrides require a previously discovered ' +
+              "settings in mode 'gui', where a model override requires a previously discovered " +
               'provider model setting'
           ),
         branchName: z
@@ -418,12 +418,14 @@ export function buildEmdashMcpServer(dependencies: McpToolDependencies): McpServ
             "Existing branch to base the new task branch on; defaults to the project's " +
               'default branch'
           ),
-        chatUi: z
-          .boolean()
+        mode: z
+          .enum(['cli', 'gui'])
           .optional()
           .describe(
-            'Start the conversation in the chat UI instead of a terminal (requires an ' +
-              'ACP-capable provider); defaults to false'
+            "How the agent runs. 'cli' (the default) runs the provider's own CLI in a terminal; " +
+              'this is what users mean by a chat, session or agent. ' +
+              "'gui' uses Emdash's graphical conversation panel instead (ACP providers only); " +
+              'pass it only when the user asks for the graphical panel or GUI by name.'
           ),
         autoApprove: z
           .boolean()
@@ -431,7 +433,7 @@ export function buildEmdashMcpServer(dependencies: McpToolDependencies): McpServ
           .describe(
             'Run the agent with permission prompts skipped, so it executes commands and edits ' +
               "without asking in terminal mode. Defaults to the provider's saved terminal setting, " +
-              'and is ignored for chat UI and providers without an auto-approve mode. Whenever ' +
+              "and is ignored in mode 'gui' and for providers without an auto-approve mode. Whenever " +
               'auto-approve would apply, Emdash asks the user to allow it first and the call ' +
               'waits for their answer; if they do not allow it, the task still starts, with ' +
               'permission prompts, and the response has autoApproveDenied: true. The response ' +

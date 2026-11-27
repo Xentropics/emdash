@@ -34,7 +34,8 @@ export type McpCreateTaskInput = {
   model?: string;
   branchName?: string;
   baseBranch?: string;
-  chatUi?: boolean;
+  /** 'cli' (default) runs the provider CLI in a terminal; 'gui' the ACP panel. */
+  mode?: 'cli' | 'gui';
   autoApprove?: boolean;
 };
 
@@ -245,11 +246,11 @@ export async function createTaskFromPrompt(
   // since the preset would otherwise read an absent value as "push".
   const pushBranch = (await appSettings.get('project')).pushOnCreate ?? true;
 
-  // MCP keeps terminal mode as its default; chat UI requires an ACP-capable provider.
+  // MCP keeps the CLI as its default; GUI mode requires an ACP-capable provider.
   const capabilities = provider ? getPlugin(provider).capabilities : null;
   const conversationType: 'pty' | 'acp' | 'none' = !provider
     ? 'none'
-    : (input.chatUi ?? false) && capabilities?.acp.kind === 'supported'
+    : input.mode === 'gui' && capabilities?.acp.kind === 'supported'
       ? 'acp'
       : 'pty';
   // Some terminal providers take no prompt at launch ('pty-only'), so the new-task modal
@@ -259,7 +260,7 @@ export async function createTaskFromPrompt(
     return err(
       `Provider "${provider}" cannot receive a prompt when it starts in terminal mode. ` +
         (capabilities?.acp.kind === 'supported'
-          ? 'Pass chatUi: true, choose another provider, or omit prompt.'
+          ? "Pass mode: 'gui', choose another provider, or omit prompt."
           : 'Choose another provider, or omit prompt to create the task without starting it.')
     );
   }
