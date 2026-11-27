@@ -383,6 +383,148 @@ export function grokMcpAdapter(configPath = '.grok/config.toml') {
   });
 }
 
+const VIBE_MANAGED_KEYS = ['name', 'transport', 'command', 'args', 'env', 'cwd', 'url', 'disabled'];
+const VIBE_LEGACY_AUTH_KEYS = ['headers', 'api_key_env', 'api_key_header', 'api_key_format'];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function vibeServerToRegistration(raw: Record<string, unknown>): McpServerRegistration {
+  const entry: McpServerRegistration = { name: String(raw.name ?? '') };
+  if (raw.transport === 'stdio') {
+    entry.transport = 'stdio';
+    const command: unknown[] = Array.isArray(raw.command) ? raw.command : [raw.command];
+    const [first, ...rest] = command;
+    if (typeof first === 'string') entry.command = first;
+    const args = [...rest, ...(Array.isArray(raw.args) ? raw.args : [])].filter(
+      (arg): arg is string => typeof arg === 'string'
+    );
+    if (args.length) entry.args = args;
+    if (isRecord(raw.env)) entry.env = raw.env as Record<string, string>;
+    if (typeof raw.cwd === 'string') entry.cwd = raw.cwd;
+  } else {
+    entry.transport = 'http';
+    entry.type = 'http';
+    if (typeof raw.url === 'string') entry.url = raw.url;
+    const auth = isRecord(raw.auth) ? raw.auth : undefined;
+    if (auth?.type === 'oauth') {
+      const { type: _type, ...oauth } = auth;
+      entry.oauth = oauth;
+    } else {
+      const headers = auth ? auth.headers : raw.headers;
+      if (isRecord(headers)) entry.headers = headers as Record<string, string>;
+    }
+  }
+  if (raw.disabled === true) entry.enabled = false;
+  return entry;
+}
+
+function registrationToVibeServer(
+  s: McpServerRegistration,
+  current?: Record<string, unknown>
+): Record<string, unknown> {
+  // Keep Vibe-only settings (prompt, timeouts, disabled_tools, ...) from the existing entry.
+  const preserved = current ? deepClone(current) : {};
+  for (const key of VIBE_MANAGED_KEYS) delete preserved[key];
+
+  const entry: Record<string, unknown> = { name: s.name };
+  const isHttp =
+    s.transport === 'http' ||
+    s.type === 'http' ||
+    (typeof s.url === 'string' && typeof s.command !== 'string');
+
+  if (isHttp) {
+    // Vibe's `http` transport is SSE; Emdash's `http` means streamable HTTP.
+    entry.transport =
+      current?.transport === 'http' || current?.transport === 'streamable-http'
+        ? current.transport
+        : 'streamable-http';
+    if (s.url !== undefined) entry.url = s.url;
+
+    // Vibe rejects top-level auth keys next to an [auth] table, so fold them in.
+    const legacy: Record<string, unknown> = {};
+    for (const key of VIBE_LEGACY_AUTH_KEYS) {
+      if (key in preserved) legacy[key] = preserved[key];
+      delete preserved[key];
+    }
+    const currentAuth = isRecord(preserved.auth) ? preserved.auth : undefined;
+    delete preserved.auth;
+    if (s.oauth && typeof s.oauth === 'object') {
+      preserved.auth = { type: 'oauth', ...s.oauth };
+    } else {
+      const auth: Record<string, unknown> =
+        currentAuth?.type === 'oauth' ? {} : { ...legacy, ...currentAuth };
+      delete auth.headers;
+      if (s.headers && Object.keys(s.headers).length) auth.headers = s.headers;
+      if (Object.keys(auth).length) preserved.auth = { ...auth, type: 'static' };
+    }
+  } else {
+    entry.transport = 'stdio';
+    if (s.command !== undefined) entry.command = s.command;
+    if (s.args !== undefined) entry.args = s.args;
+    if (s.env !== undefined) entry.env = s.env;
+    if (s.cwd !== undefined) entry.cwd = s.cwd;
+    for (const key of [...VIBE_LEGACY_AUTH_KEYS, 'auth']) delete preserved[key];
+  }
+  if (s.enabled === false) entry.disabled = true;
+  return { ...entry, ...preserved };
+}
+
+/**
+ * Mistral Vibe adapter — TOML array of tables (`[[mcp_servers]]`), each with a `name` and a
+ * `transport` of `stdio`, `http` (SSE) or `streamable-http`. HTTP headers live in an
+ * `[mcp_servers.auth]` table with `type = "static"`.
+ * Config: ~/.vibe/config.toml, key: mcp_servers.
+ */
+export function vibeMcpAdapter(configPath = '.vibe/config.toml') {
+  async function readConfig(fs: PluginFs): Promise<Record<string, unknown> | null> {
+    const content = await fs.read(configPath);
+    return content ? (parseTOML(content) as Record<string, unknown>) : null;
+  }
+
+  function serverList(parsed: Record<string, unknown> | null): Record<string, unknown>[] {
+    const servers = parsed?.mcp_servers;
+    return Array.isArray(servers) ? servers.filter(isRecord) : [];
+  }
+
+  return {
+    async readServers(fs: PluginFs): Promise<McpServerRegistration[]> {
+      try {
+        return serverList(await readConfig(fs))
+          .filter((raw) => typeof raw.name === 'string')
+          .map(vibeServerToRegistration);
+      } catch {
+        return [];
+      }
+    },
+    async writeServers(fs: PluginFs, servers: McpServerRegistration[]): Promise<void> {
+      const parsed = (await readConfig(fs)) ?? {};
+      const currentByName = new Map(serverList(parsed).map((raw) => [raw.name, raw]));
+      const next = servers.map((server) =>
+        registrationToVibeServer(server, currentByName.get(server.name))
+      );
+      if (next.length) parsed.mcp_servers = next;
+      else delete parsed.mcp_servers;
+      await fs.write(configPath, stringifyTOML(parsed));
+    },
+    async removeServer(fs: PluginFs, name: string): Promise<void> {
+      let parsed: Record<string, unknown> | null;
+      try {
+        parsed = await readConfig(fs);
+      } catch {
+        return;
+      }
+      const servers = serverList(parsed);
+      if (!parsed || !servers.some((raw) => raw.name === name)) return;
+      const remaining = servers.filter((raw) => raw.name !== name);
+      if (remaining.length) parsed.mcp_servers = remaining;
+      else delete parsed.mcp_servers;
+      await fs.write(configPath, stringifyTOML(parsed));
+    },
+  };
+}
+
 /**
  * Gemini adapter — HTTP servers use httpUrl instead of url; Accept header is injected.
  * Config: ~/.gemini/settings.json, key: mcpServers, JSON.

@@ -3,7 +3,10 @@ import {
   definePlugin,
   registerPluginBehavior,
 } from '@emdash/core/services/agent-plugins/api/plugins';
-import { buildStandardCommand } from '@emdash/core/services/agent-plugins/api/plugins/helpers';
+import {
+  buildStandardCommand,
+  vibeMcpAdapter,
+} from '@emdash/core/services/agent-plugins/api/plugins/helpers';
 import { createNativeAcpBehavior } from '../../helpers/acp-stdio';
 import { buildMistralHookConfig } from './hooks';
 import { icon } from './icon';
@@ -27,6 +30,11 @@ export const plugin = definePlugin(
       kind: 'config',
       scope: 'global',
       supportedEvents: ['notification', 'stop'],
+    },
+    mcp: {
+      kind: 'supported',
+      scope: 'global',
+      supportedTransports: ['stdio', 'http'],
     },
     models: {
       kind: 'selectable',
@@ -97,6 +105,7 @@ export const provider = registerPluginBehavior(plugin, {
     };
   }),
   hooks: buildMistralHookConfig(),
+  mcp: vibeMcpAdapter(),
   prompt: {
     buildCommand: (ctx) =>
       buildStandardCommand(ctx, {

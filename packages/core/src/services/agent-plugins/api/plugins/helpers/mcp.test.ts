@@ -12,6 +12,7 @@ import {
   mimocodeMcpAdapter,
   opencodeMcpAdapter,
   passthroughMcpAdapter,
+  vibeMcpAdapter,
 } from './mcp';
 
 // ── In-memory PluginFs ───────────────────────────────────────────────────────
@@ -920,5 +921,177 @@ describe('crushMcpAdapter', () => {
       { name: 'local', type: 'stdio', command: 'node', args: ['server.js'] },
       { name: 'remote', type: 'http', url: 'https://example.com/mcp' },
     ]);
+  });
+});
+
+// ── Mistral Vibe TOML adapter ───────────────────────────────────────────────
+
+describe('vibeMcpAdapter', () => {
+  const adapter = vibeMcpAdapter('.vibe/config.toml');
+
+  function readServers(raw: string | null): Record<string, unknown>[] {
+    return (parseTOML(raw!) as { mcp_servers?: Record<string, unknown>[] }).mcp_servers ?? [];
+  }
+
+  it('writes an HTTP server as streamable-http with static auth headers, keeping config', async () => {
+    const fs = createMemoryFs({ '.vibe/config.toml': 'theme = "dark"\n' });
+
+    await adapter.writeServers(fs, [
+      {
+        name: 'emdash',
+        transport: 'http',
+        type: 'http',
+        url: 'http://127.0.0.1:8212/mcp',
+        headers: { Authorization: 'Bearer token' },
+      },
+    ]);
+
+    const raw = await fs.read('.vibe/config.toml');
+    expect((parseTOML(raw!) as Record<string, unknown>).theme).toBe('dark');
+    expect(readServers(raw)).toEqual([
+      {
+        name: 'emdash',
+        transport: 'streamable-http',
+        url: 'http://127.0.0.1:8212/mcp',
+        auth: { type: 'static', headers: { Authorization: 'Bearer token' } },
+      },
+    ]);
+  });
+
+  it('writes stdio servers and marks disabled ones', async () => {
+    const fs = createMemoryFs();
+
+    await adapter.writeServers(fs, [
+      { name: 'fs', command: 'npx', args: ['-y', 'server-fs'], env: { A: '1' }, enabled: false },
+    ]);
+
+    expect(readServers(await fs.read('.vibe/config.toml'))).toEqual([
+      {
+        name: 'fs',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', 'server-fs'],
+        env: { A: '1' },
+        disabled: true,
+      },
+    ]);
+  });
+
+  it('reads Vibe servers into the canonical shape', async () => {
+    const fs = createMemoryFs({
+      '.vibe/config.toml': [
+        '[[mcp_servers]]',
+        'name = "docs"',
+        'transport = "http"',
+        'url = "https://example.com/sse"',
+        'headers = { "X-Key" = "abc" }',
+        '',
+        '[[mcp_servers]]',
+        'name = "local"',
+        'transport = "stdio"',
+        'command = ["uvx", "tool"]',
+        'args = ["--flag"]',
+        'disabled = true',
+        '',
+        '[[mcp_servers]]',
+        'name = "cloud"',
+        'transport = "streamable-http"',
+        'url = "https://example.com/mcp"',
+        '[mcp_servers.auth]',
+        'type = "oauth"',
+        'scopes = ["read"]',
+      ].join('\n'),
+    });
+
+    expect(await adapter.readServers(fs)).toEqual([
+      {
+        name: 'docs',
+        transport: 'http',
+        type: 'http',
+        url: 'https://example.com/sse',
+        headers: { 'X-Key': 'abc' },
+      },
+      {
+        name: 'local',
+        transport: 'stdio',
+        command: 'uvx',
+        args: ['tool', '--flag'],
+        enabled: false,
+      },
+      {
+        name: 'cloud',
+        transport: 'http',
+        type: 'http',
+        url: 'https://example.com/mcp',
+        oauth: { scopes: ['read'] },
+      },
+    ]);
+  });
+
+  it('round-trips existing entries without losing Vibe-only settings', async () => {
+    const fs = createMemoryFs({
+      '.vibe/config.toml': [
+        '[[mcp_servers]]',
+        'name = "docs"',
+        'transport = "http"',
+        'url = "https://example.com/sse"',
+        'tool_timeout_sec = 120',
+        'disabled_tools = ["write"]',
+        'headers = { "X-Key" = "abc" }',
+        'api_key_env = "DOCS_KEY"',
+        '',
+        '[[mcp_servers]]',
+        'name = "cloud"',
+        'transport = "streamable-http"',
+        'url = "https://example.com/mcp"',
+        '[mcp_servers.auth]',
+        'type = "oauth"',
+        'scopes = ["read"]',
+      ].join('\n'),
+    });
+
+    await adapter.writeServers(fs, await adapter.readServers(fs));
+
+    expect(readServers(await fs.read('.vibe/config.toml'))).toEqual([
+      {
+        name: 'docs',
+        transport: 'http',
+        url: 'https://example.com/sse',
+        tool_timeout_sec: 120,
+        disabled_tools: ['write'],
+        auth: { type: 'static', api_key_env: 'DOCS_KEY', headers: { 'X-Key': 'abc' } },
+      },
+      {
+        name: 'cloud',
+        transport: 'streamable-http',
+        url: 'https://example.com/mcp',
+        auth: { type: 'oauth', scopes: ['read'] },
+      },
+    ]);
+  });
+
+  it('removes one server and drops the key when none are left', async () => {
+    const fs = createMemoryFs({
+      '.vibe/config.toml': [
+        'theme = "dark"',
+        '[[mcp_servers]]',
+        'name = "a"',
+        'transport = "stdio"',
+        'command = "a"',
+        '[[mcp_servers]]',
+        'name = "b"',
+        'transport = "stdio"',
+        'command = "b"',
+      ].join('\n'),
+    });
+
+    await adapter.removeServer(fs, 'a');
+    expect(readServers(await fs.read('.vibe/config.toml')).map((s) => s.name)).toEqual(['b']);
+
+    await adapter.removeServer(fs, 'missing');
+    await adapter.removeServer(fs, 'b');
+    const parsed = parseTOML((await fs.read('.vibe/config.toml'))!) as Record<string, unknown>;
+    expect(parsed.mcp_servers).toBeUndefined();
+    expect(parsed.theme).toBe('dark');
   });
 });
