@@ -1,0 +1,191 @@
+name: Release (Xentropics fork)
+
+# Builds the latest (or a given) upstream release plus the fork's feature branches
+# (fork/features.txt) and publishes it as a GitHub release of Xentropics/emdash,
+# versioned <upstream>+xentropics.<build>. Start it by hand from the Actions tab.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Upstream release tag (empty = latest, for example v1.2.14)
+        required: false
+        default: ''
+      build:
+        description: Fork build number for this upstream release
+        required: true
+        default: '1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-fork
+  cancel-in-progress: false
+
+jobs:
+  assemble:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch upstream releases
+        run: |
+          git remote add upstream https://github.com/generalaction/emdash.git
+          git fetch --quiet --tags upstream main
+      - name: Work out the version
+        id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_BUILD: ${{ inputs.build }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${INPUT_TAG:-$(git tag -l 'v[0-9]*' | grep -v -- '-' | sort -V | tail -1)}"
+          case "$INPUT_BUILD" in ''|*[!0-9]*) echo "::error::build must be a number"; exit 1 ;; esac
+          version="${tag#v}+xentropics.${INPUT_BUILD}"
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release v$version already exists; raise the build number."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Assemble the fork build
+        run: |
+          tools="$RUNNER_TEMP/fork-tools"
+          mkdir -p "$tools"
+          git archive "$GITHUB_SHA" fork | tar -x -C "$tools"
+          git config user.name "Xentropics build"
+          git config user.email "build@invalid"
+          "$tools/fork/assemble.sh" "$PWD" "${{ steps.version.outputs.tag }}" "${{ steps.version.outputs.version }}"
+          git log --oneline "${{ steps.version.outputs.tag }}..HEAD" > "$RUNNER_TEMP/commits.txt"
+          git archive --format=tar.gz --prefix="emdash-${{ steps.version.outputs.version }}/" \
+            -o "$RUNNER_TEMP/emdash-source.tar.gz" HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source
+          path: |
+            ${{ runner.temp }}/emdash-source.tar.gz
+            ${{ runner.temp }}/commits.txt
+
+  build:
+    needs: assemble
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-14
+            builder: --mac dmg zip --arm64
+            files: |
+              apps/emdash-desktop/release/*.dmg
+              apps/emdash-desktop/release/*.zip
+              apps/emdash-desktop/release/*.blockmap
+              apps/emdash-desktop/release/latest-mac.yml
+          - name: Linux x64
+            os: ubuntu-22.04
+            builder: --linux AppImage deb --x64
+            files: |
+              apps/emdash-desktop/release/*.AppImage
+              apps/emdash-desktop/release/*.deb
+              apps/emdash-desktop/release/latest-linux.yml
+          - name: Windows x64
+            os: windows-2022
+            builder: --win nsis --x64
+            files: |
+              apps/emdash-desktop/release/*.exe
+              apps/emdash-desktop/release/*.blockmap
+              apps/emdash-desktop/release/latest.yml
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: source
+          path: ${{ runner.temp }}/source
+      - name: Unpack the assembled source
+        run: tar -xzf "$RUNNER_TEMP/source/emdash-source.tar.gz" --strip-components=1 -C "$GITHUB_WORKSPACE"
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: >
+          sudo apt-get update &&
+          sudo apt-get install -y build-essential libasound2 libgbm1 libgtk-3-0 libnss3
+          libsecret-1-dev pkg-config rpm
+      - uses: ./.github/actions/setup-build
+        with:
+          windows-native: ${{ runner.os == 'Windows' && 'true' || 'false' }}
+      - name: Export Python path for native modules
+        if: runner.os == 'Windows'
+        run: echo "python=$(which python)" >> "$GITHUB_ENV"
+      - run: pnpm run build
+      - name: Package
+        working-directory: apps/emdash-desktop
+        env:
+          # Developer ID signing once these secrets exist; ad hoc otherwise.
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.CERTIFICATE_P12 || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.CERTIFICATE_PASSWORD || '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: >
+          pnpm exec electron-builder ${{ matrix.builder }}
+          --config electron-builder.fork.config.ts --publish never
+      - name: Notarize and staple
+        if: runner.os == 'macOS'
+        working-directory: apps/emdash-desktop
+        env:
+          CSC_LINK: ${{ secrets.CERTIFICATE_P12 }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          if [ -z "$CSC_LINK" ] || [ -z "$APPLE_API_KEY_CONTENT" ]; then
+            echo "No Apple signing secrets: the app is signed ad hoc and not notarized."
+            exit 0
+          fi
+          node --experimental-strip-types scripts/release/notarize-mac.ts --app-bundle "Emdash.app"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ runner.os }}
+          if-no-files-found: error
+          path: ${{ matrix.files }}
+
+  publish:
+    needs: [assemble, build]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.assemble.outputs.tag }}
+          VERSION: ${{ needs.assemble.outputs.version }}
+          NOTARIZED: ${{ secrets.CERTIFICATE_P12 != '' && secrets.APPLE_API_KEY != '' }}
+        run: |
+          {
+            echo "Emdash $TAG from [upstream](https://github.com/generalaction/emdash/releases/tag/$TAG) with the Xentropics fork's changes:"
+            echo
+            echo '```'
+            cat dist/source/commits.txt
+            echo '```'
+            echo
+            if [ "$NOTARIZED" != true ]; then
+              echo "The macOS app is not notarized yet. After moving it to Applications, run:"
+              echo
+              echo '```'
+              echo 'xattr -dr com.apple.quarantine /Applications/Emdash.app'
+              echo '```'
+              echo
+              echo "Windows will warn that the installer is from an unknown publisher."
+            fi
+          } > notes.md
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Emdash $VERSION" --notes-file notes.md \
+            dist/source/emdash-source.tar.gz $(find dist/macOS dist/Linux dist/Windows -type f)

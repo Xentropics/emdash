@@ -1,0 +1,14 @@
+# Fork branches added on top of an upstream release, in this order.
+# One per line: branch|marker file|marker text|base
+# A release that already has the marker file (and the marker text in it, when given)
+# contains the branch, so its commits are skipped. Only commits after the base
+# (default upstream/main) are added; set it for a branch stacked on another one.
+feat/sidebar-project-groups|apps/emdash-desktop/src/core/features/workbench/browser/sidebar/group-drop-target.ts|
+feat/folder-dialog-new-folder|apps/emdash-desktop/src/main/core/app/service.ts|'createDirectory'
+feat/sidebar-pin-copies|apps/emdash-desktop/src/core/features/workbench/contributions/mementos.ts|workbench.sidebar-pins
+feat/sidebar-pinned-list-tools|apps/emdash-desktop/src/core/features/workbench/contributions/mementos.ts|maxHeightRatio|origin/feat/sidebar-pin-copies
+feat/mcp-server|apps/emdash-desktop/src/core/features/mcp/node/server/register-tools.ts|send_task_message
+feat/mistral-mcp|packages/core/src/services/agent-plugins/api/plugins/helpers/mcp.ts|vibeMcpAdapter
+feat/mcp-projects-groups|apps/emdash-desktop/src/core/features/mcp/node/server/project-groups.ts|createMementoProjectGroupsStore|origin/feat/mcp-server
+fix/tui-resize-while-starting|packages/core/src/runtimes/tui-agents/node/runtime/runtime.ts|currentSize
+feat/terminal-file-links|apps/emdash-desktop/src/core/features/terminals/browser/pty/file-link-detection.ts|QUOTED_PATH

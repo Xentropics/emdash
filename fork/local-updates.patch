@@ -1,0 +1,69 @@
+diff --git a/apps/emdash-desktop/src/core/features/updates/browser/update-store.tsx b/apps/emdash-desktop/src/core/features/updates/browser/update-store.tsx
+index 3d3b9bc42..9ce856778 100644
+--- a/apps/emdash-desktop/src/core/features/updates/browser/update-store.tsx
++++ b/apps/emdash-desktop/src/core/features/updates/browser/update-store.tsx
+@@ -269,12 +269,12 @@ export class UpdateStore {
+ 
+   private _showAvailableToast(version: string): void {
+     toast('Update Available', {
+-      description: `Version ${version} is available to download and install.`,
++      description: `Version ${version} is available. Rebuild your local Emdash or download the new Xentropics build.`,
+       duration: 10_000,
+       action: {
+         label: (
+           <span className="flex items-center gap-1.5">
+-            Update
++            Get it
+             <ArrowUpRight className="size-3.5" />
+           </span>
+         ),
+diff --git a/apps/emdash-desktop/src/main/host/updates/update-service.ts b/apps/emdash-desktop/src/main/host/updates/update-service.ts
+index 5c232a7c9..505b4a279 100644
+--- a/apps/emdash-desktop/src/main/host/updates/update-service.ts
++++ b/apps/emdash-desktop/src/main/host/updates/update-service.ts
+@@ -1,4 +1,9 @@
++import { spawn } from 'node:child_process';
++import { existsSync } from 'node:fs';
++import { homedir } from 'node:os';
++import { join } from 'node:path';
+ import type { Disposable } from '@emdash/shared/concurrency';
++import { shell } from 'electron';
+ import _electronUpdater, {
+   type ProgressInfo,
+   type UpdateInfo,
+@@ -17,6 +22,27 @@ function getAutoUpdater(): typeof _electronUpdater.autoUpdater {
+   return autoUpdater;
+ }
+ 
++// XENTROPICS BUILD: a new release is installed by rebuilding the fork locally
++// (emdash-local/rebuild.command) where that script exists, and otherwise from the
++// fork's release page, not by downloading the upstream release.
++const LOCAL_REBUILD: boolean = true;
++const FORK_RELEASES_URL = 'https://github.com/Xentropics/emdash/releases/latest';
++const LOCAL_REBUILD_SCRIPT = join(
++  homedir(),
++  'ProjectenNieuweStijl/Applications/emdash-local/rebuild.command'
++);
++
++function openLocalRebuild(): void {
++  if (process.platform !== 'darwin' || !existsSync(LOCAL_REBUILD_SCRIPT)) {
++    void shell.openExternal(FORK_RELEASES_URL);
++    return;
++  }
++  spawn('open', ['-a', 'Terminal', LOCAL_REBUILD_SCRIPT], {
++    detached: true,
++    stdio: 'ignore',
++  }).unref();
++}
++
+ const ALLOW_PRERELEASE = IS_CANARY;
+ const ALLOW_DOWNGRADE = false;
+ const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+@@ -206,6 +232,7 @@ export class UpdateService implements Disposable {
+ 
+   downloadUpdate(): void {
+     if (!this.active) throw new Error('Update service is not active');
++    if (LOCAL_REBUILD) return openLocalRebuild();
+     if (this.hasPendingUpdate) return;
+ 
+     if (this.updateState.status === 'error' && this.updateState.availableVersion) {
